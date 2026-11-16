@@ -24,7 +24,7 @@ The application expects a legally obtained, decrypted dump of the game. It does 
 - Adds GSP framebuffer address translation for the 3GX plugin framebuffer range.
 - Adds CSND PCM8, PCM16, and IMA-ADPCM playback, command-list handling, and service-session resource cleanup.
 - Preserves compatibility with 1.0.0 save-state data.
-- CTGP-7 compatibility is not yet confirmed. PSG/noise synthesis, CSND capture DMA, and external SetLoadExeParam injection are not implemented; the loader currently requires an embedded executable-check function.
+- CTGP-7 support is experimental and may or may not work. PSG/noise synthesis, CSND capture DMA, and external SetLoadExeParam injection are not implemented; the loader currently requires an embedded executable-check function.
 
 ## Regional update data and CTGP-7
 
@@ -37,11 +37,11 @@ Place an update `.cia` beside its matching base-game dump in the same library fo
 | USA | `0004000E00030800` | 3152 |
 | Korea | `0004000E00030A00` | 3088 |
 
-**The 3GX loader is integrated on the development branch, but CTGP-7 compatibility is not yet confirmed.** The runtime has a startup bootloader, plugin memory mapping, title compatibility checks, the `plg:ldr` service, and a CSND software mixer for PCM8, PCM16, and IMA-ADPCM. PSG/noise synthesis and CSND capture DMA are not implemented. Plugins must contain an embedded executable-check function; external `SetLoadExeParam` injection is not supported yet.
+**CTGP-7 support is experimental and may or may not work.** The 3GX loader is integrated, but CTGP-7 has not been validated end-to-end. The runtime has a startup bootloader, plugin memory mapping, title compatibility checks, the `plg:ldr` service, and a CSND software mixer for PCM8, PCM16, and IMA-ADPCM. PSG/noise synthesis and CSND capture DMA are not implemented. Plugins must contain an embedded executable-check function; external `SetLoadExeParam` injection is not supported yet.
 
 For a title-specific plugin, place the `.3gx` file in the emulated SD-card folder `user/sdmc/luma/plugins/<16-digit-title-id>/` inside the application's configured data directory. The runtime also accepts `user/sdmc/plugins/<16-digit-title-id>/` and the older top-level `luma/plugins/<16-digit-title-id>/` or `plugins/<16-digit-title-id>/` layouts. For Mario Kart 7 USA, use title ID `0004000000030800`. A fallback plugin can be placed at `user/sdmc/luma/plugins/default.3gx` or `user/sdmc/plugins/default.3gx`. The CTGP-7 plugin path `user/sdmc/CTGP-7/resources/CTGP-7.3gx` is also searched automatically. Put the complete extracted `CTGP-7` folder in the `user/sdmc` folder inside the application's data directory; `user/sdmc` is the emulator's guest-visible SD-card root, so the plugin and its additional resources are both visible. The plugin is mapped before the game's main thread starts.
 
-This does not yet establish that CTGP-7 is playable. Its launcher/installation flow and all of its plugin dependencies still need end-to-end validation against the real CTGP-7 plugin and update on macOS.
+The CTGP-7 plugin has not yet been run end-to-end in this build. Its launcher flow, plugin dependencies, sound behavior, and gameplay still need validation against the real CTGP-7 plugin and matching v1.2 update on macOS.
 
 ## Playing
 
@@ -101,8 +101,8 @@ For a normal user, the prebuilt packages on the Releases page are the easiest op
 ### Creating version 1.0.1 on GitHub
 
 1. Open the repository and select **Releases → Draft a new release**.
-2. In **Choose a tag**, type `v1.0.0`, then select **Create new tag: v1.0.0**.
-3. Set **Target** to `feature/3gx-loader-foundation` so the tag contains the 1.0.1 implementation.
+2. In **Choose a tag**, type `v1.0.1`, then select **Create new tag: v1.0.1**.
+3. Set **Target** to `main` so the release tag points to the merged 1.0.1 implementation.
 4. Select **Save draft**. Creating the tag on the Releases page triggers the release build. The workflow will attach all four platform packages and publish the draft when they are ready.
 
 The Rust workspace version is `1.0.1`. The matching release tag is `v1.0.1`; keep the existing `v1.0.0` tag unchanged.

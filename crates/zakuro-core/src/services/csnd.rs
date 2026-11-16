@@ -372,3 +372,38 @@ impl CsndState {
     }
 }
 
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_csnd_session_gets_independent_state() {
+        let mut csnd = CsndState::default();
+        let first = csnd.open_session();
+        let second = csnd.open_session();
+        assert_ne!(first, second);
+        assert!(csnd.clients.contains_key(&first));
+        assert!(csnd.clients.contains_key(&second));
+    }
+
+    #[test]
+    fn pcm8_channel_is_mixed_into_the_audio_frame() {
+        let mut memory = Memory::new(false, 64 * 1024 * 1024);
+        let block = memory.phys.allocate(MemoryRegion::Base, 0x1000).unwrap();
+        memory.write_physical(block.addr, &[0x40; 64]);
+        let mut csnd = CsndState::default();
+        let channel = &mut csnd.channels[0];
+        channel.start = block.addr;
+        channel.size = 64;
+        channel.timer = 1;
+        channel.volume_left = 0x8000;
+        channel.volume_right = 0x8000;
+        channel.cnt = 0xC800; // enabled, running, one-shot loop mode, PCM8
+        start_channel(channel);
+        let mut output = vec![[0i16; 2]; 160];
+        csnd.render_frame(&mut memory, &mut output);
+        assert!(output.iter().any(|sample| sample[0] > 0 && sample[1] > 0));
+    }
+}

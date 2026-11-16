@@ -96,6 +96,6 @@ The Rust workspace version is `1.0.0`, and the matching Git tag is `v1.0.0`.
 
 ## Attribution and legal notes
 
-This project is an unofficial, game-specific fork of [fearkov/zakuro](https://github.com/fearkov/zakuro) and uses [fearkov/3dsrecomp](https://github.com/fearkov/3dsrecomp). The original Zakuro project is MIT-licensed; see [LICENSE](LICENSE) for the preserved notice.
+This project is an unofficial, game-specific fork of [fearkov/zakuro](https://github.com/fearkov/zakuro) and uses [fearkov/3dsrecomp](https://github.com/fearkov/3dsrecomp). The original Zakuro project and the existing MIT-licensed portions retain their original notices in [LICENSE-MIT](LICENSE-MIT). The project is now distributed under GPL-3.0-or-later to permit integration of GPL-compatible 3DS runtime components; see [LICENSE](LICENSE).
 
 Mario Kart 7 is a trademark of Nintendo. This project is unofficial and is not affiliated with or endorsed by Nintendo. No game ROM, generated title-specific C code, compiled game library, copyrighted game assets, or other game data is distributed. Users must provide their own lawful game dump and keep the resulting local recompilation on their own device.

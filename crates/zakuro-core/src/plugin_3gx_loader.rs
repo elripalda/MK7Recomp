@@ -115,11 +115,16 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
     // passes it to plg:ldr through SetLoadSettings. Also check the same path
     // directly so the recompiled title can launch without the separate
     // homebrew launcher process.
-    let ctgp_plugin = data_dir.join("CTGP-7").join("resources").join("CTGP-7.3gx");
-    if ctgp_plugin.is_file() {
-        match load_path(system, title, game_entry, &ctgp_plugin, false) {
-            Ok(()) => return Some(BOOTLOADER_ADDRESS),
-            Err(error) => log::warn!("CTGP-7 plugin {} was not loaded: {error}", ctgp_plugin.display()),
+    let ctgp_plugin_paths = [
+        system.services.fs.user_dir.join("CTGP-7").join("resources").join("CTGP-7.3gx"),
+        data_dir.join("CTGP-7").join("resources").join("CTGP-7.3gx"),
+    ];
+    for ctgp_plugin in ctgp_plugin_paths {
+        if ctgp_plugin.is_file() {
+            match load_path(system, title, game_entry, &ctgp_plugin, false) {
+                Ok(()) => return Some(BOOTLOADER_ADDRESS),
+                Err(error) => log::warn!("CTGP-7 plugin {} was not loaded: {error}", ctgp_plugin.display()),
+            }
         }
     }
 

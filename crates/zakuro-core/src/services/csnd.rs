@@ -67,6 +67,9 @@ struct Channel {
     step_index: u8,
 }
 
+#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+struct CaptureUnit { cnt: u16, timer: u16, address: u32, size: u32 }
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct Client {
     shared_block: Option<PhysicalBlock>,
@@ -99,6 +102,9 @@ pub struct CsndState {
     clients: BTreeMap<u32, Client>,
     next_session: u32,
     capture_in_use: [bool; CAPTURES],
+    captures: [CaptureUnit; CAPTURES],
+    channel_mask_register: u32,
+    capture_mask_register: u8,
     master_volume: u16,
 }
 
@@ -109,6 +115,9 @@ impl Default for CsndState {
             clients: BTreeMap::new(),
             next_session: 1,
             capture_in_use: [false; CAPTURES],
+            captures: [CaptureUnit::default(); CAPTURES],
+            channel_mask_register: 0,
+            capture_mask_register: 0,
             master_volume: 0x8000,
         }
     }
@@ -274,7 +283,10 @@ impl CsndState {
     match command {
         0x000 => {
             let ch = &mut system.services.csnd.channels[index];
-            if p[1] != 0 { ch.cnt |= 0x8000; } else { ch.cnt &= !0x8000; ch.holding = false; }
+            if p[1] != 0 {
+                if ch.cnt & 0x8000 == 0 { start_channel(ch); }
+                ch.cnt |= 0x8000;
+            } else { ch.cnt &= !0x8000; ch.holding = false; }
         }
         0x001 => {
             if p[1] != 0 {
@@ -316,6 +328,8 @@ impl CsndState {
         0x00A => {
             let ch = &mut system.services.csnd.channels[index];
             ch.start = p[1]; ch.size = p[2] & 0x07FF_FFFF; ch.adpcm_state = 0;
+            let state_at = client.channel_offset + channel_position(client.channel_mask, index) * CHANNEL_STATE_SIZE + 8;
+            write_shared_u32(system, client, state_at, 0);
         }
         0x00B => {
             let ch = &mut system.services.csnd.channels[index];
@@ -345,7 +359,14 @@ impl CsndState {
                 ch.cnt |= 0xC000;
             }
         }
-        0x200 => {}
+        0x100 => { let capture = &mut system.services.csnd.captures[index]; if p[1] != 0 { capture.cnt |= 0x8000; } else { capture.cnt &= !0x8000; } }
+        0x101 => { let capture = &mut system.services.csnd.captures[index]; capture.cnt = (capture.cnt & !1) | (p[1] as u16 & 1); }
+        0x102 => { let capture = &mut system.services.csnd.captures[index]; capture.cnt = (capture.cnt & !2) | (((p[1] & 1) as u16) << 1); }
+        0x103 => { let capture = &mut system.services.csnd.captures[index]; capture.cnt = (capture.cnt & !4) | if p[1] != 0 { 4 } else { 0 }; }
+        0x104 => system.services.csnd.captures[index].timer = (0x1_0000u32.wrapping_sub(p[1])) as u16,
+        0x105 => { let capture = &mut system.services.csnd.captures[index]; capture.address = p[1]; capture.size = p[2]; }
+        0x106 => { let capture = &mut system.services.csnd.captures[index]; capture.timer = (0x1_0000u32.wrapping_sub(p[1] >> 16)) as u16; capture.address = p[2]; capture.size = p[3]; capture.cnt = (p[1] as u16) & 0x8007; }
+        0x200 => { system.services.csnd.channel_mask_register = client.channel_mask; system.services.csnd.capture_mask_register = client.capture_mask; }
         0x300 => write_client_state(system, client),
         _ => {}
     }

@@ -95,7 +95,7 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header) -> bo
         }
         // IsEnabled
         0x0002 => {
-            buffer.reply(&mut system.memory, command, &[u32::from(system.services.plgldr.enabled)]);
+            buffer.reply(&mut system.memory, command, &[system.services.plgldr.enabled as u32]);
             true
         }
         // SetEnabled

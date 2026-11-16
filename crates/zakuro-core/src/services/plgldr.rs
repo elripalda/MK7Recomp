@@ -172,11 +172,12 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header) -> bo
                     // The service reports paths relative to SDMC, not to the
                     // application's host data directory (whose SD root is
                     // the "user" subdirectory).
+                    let sdmc_root = system.services.fs.user_dir.join("sdmc");
                     plugin_path
-                        .strip_prefix(&system.services.fs.user_dir)
+                        .strip_prefix(&sdmc_root)
                         .ok()
                         .or_else(|| {
-                            system.services.fs.user_dir.parent()
+                            system.config.data_dir.as_deref()
                                 .and_then(|root| plugin_path.strip_prefix(root).ok())
                         })
                         .map(|p| format!("/{}", p.to_string_lossy().replace('\\', "/")))

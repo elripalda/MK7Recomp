@@ -35,7 +35,7 @@ fn invalid_handle(system: &mut System, handle: u32, what: &str) -> u32 {
 /// reach services, which load code, or that nothing implements stop the
 /// code, and the step runs them.
 pub fn in_place(number: u32) -> bool {
-    matches!(number, 0x02 | 0x0A..=0x0C | 0x11 | 0x13..=0x1D | 0x21..=0x25 | 0x27 | 0x28 | 0x2A | 0x2B | 0x35 | 0x37..=0x3A | 0x3D | 0x54..=0x56)
+    matches!(number, 0x02 | 0x0A..=0x0C | 0x11 | 0x13..=0x1D | 0x21..=0x25 | 0x27 | 0x28 | 0x2A | 0x2B | 0x35 | 0x37..=0x3A | 0x3D | 0x54..=0x56 | 0x94 | 0xB3)
 }
 
 /// runs one supervisor call.
@@ -98,9 +98,11 @@ pub fn dispatch(system: &mut System, number: u32) {
         0x3C => svc_break(system),
         0x3D => output_debug_string(system),
         // cache maintenance.
-        0x54..=0x56 => {
+        0x54..=0x56 | 0x94 => {
+            // Data and instruction caches are coherent in this emulator.
             system.cpu.regs[0] = 0;
         }
+        0xB3 => control_process(system),
         _ => {
             log::warn!(
                 "unimplemented svc 0x{number:02X} at 0x{:08X} (r0={:08X} r1={:08X} r2={:08X} r3={:08X})",
@@ -992,6 +994,54 @@ fn send_sync_request(system: &mut System) {
 pub(crate) const REQUEST_TICKS: u64 = nanos_to_ticks(39_000);
 
 // ---------------------------------------------------------------------------
+// Plugin loader compatibility
+// ---------------------------------------------------------------------------
+
+/// ControlProcess operation used by the 3GX bootloader to make the process
+/// address space writable and executable before restoring its entry point.
+const PROCESSOP_SET_MMU_TO_RWX: u32 = 1;
+
+/// svcControlProcess, r0 = process handle, r1 = operation, r2/r3 = arguments.
+/// The 3GX bootstrap uses operation 1. The emulator has a single guest process,
+/// represented by CURRENT_PROCESS just like the console's pseudo-handle.
+fn control_process(system: &mut System) {
+    let handle = system.cpu.regs[0];
+    let operation = system.cpu.regs[1];
+
+    let Some(object) = system.kernel.resolve(handle) else {
+        let error = invalid_handle(system, handle, "svcControlProcess");
+        system.cpu.regs[0] = error;
+        return;
+    };
+    if !matches!(system.kernel.objects.get(object), Some(KObject::Process)) {
+        let error = invalid_handle(system, handle, "svcControlProcess");
+        system.cpu.regs[0] = error;
+        return;
+    }
+
+    match operation {
+        PROCESSOP_SET_MMU_TO_RWX => {
+            let mappings: Vec<_> = system.memory.mappings().copied().collect();
+            let permission = Permission::READ | Permission::WRITE | Permission::EXECUTE;
+            for mapping in mappings {
+                system.memory.map(
+                    mapping.base,
+                    mapping.paddr,
+                    mapping.size,
+                    permission,
+                    mapping.state,
+                );
+            }
+            system.cpu.regs[0] = 0;
+        }
+        _ => {
+            log::warn!("svcControlProcess operation {operation} is not implemented");
+            system.cpu.regs[0] = errors::UNIMPLEMENTED.0;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Information
 // ---------------------------------------------------------------------------
 
@@ -1203,6 +1253,36 @@ mod tests {
         };
         let first = read();
         assert_eq!(read() - first, SYSTEM_TICK_COST);
+    }
+
+    #[test]
+    fn control_process_sets_all_mapped_pages_to_rwx() {
+        let mut system = System::new(crate::Config::default());
+        let block = system
+            .memory
+            .phys
+            .allocate(crate::memory::MemoryRegion::Application, PAGE_SIZE)
+            .unwrap();
+        system.memory.map(
+            0x0010_0000,
+            block.addr,
+            PAGE_SIZE,
+            Permission::RX,
+            MemoryState::Code,
+        );
+
+        system.cpu.regs[..4].copy_from_slice(&[CURRENT_PROCESS, PROCESSOP_SET_MMU_TO_RWX, 0, 0]);
+        dispatch(&mut system, 0xB3);
+
+        assert_eq!(system.cpu.regs[0], 0);
+        assert_eq!(system.memory.query(0x0010_0000).permission, 7);
+    }
+
+    #[test]
+    fn invalidate_entire_instruction_cache_succeeds() {
+        let mut system = System::new(crate::Config::default());
+        dispatch(&mut system, 0x94);
+        assert_eq!(system.cpu.regs[0], 0);
     }
 
     /// svcControlMemory with an operation, giving back r0 and r1.

@@ -68,7 +68,9 @@ impl Target {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct ServiceState {
     pub srv: srv::SrvState,
+    #[serde(default)]
     pub csnd: csnd::CsndState,
+    #[serde(default)]
     pub plgldr: plgldr::PluginLoaderState,
     pub apt: apt::AptState,
     pub gsp: gsp::GspState,

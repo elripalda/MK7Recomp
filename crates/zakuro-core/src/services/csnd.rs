@@ -549,12 +549,15 @@ fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 
                     | if flags & (1 << 6) != 0 { 0x40 } else { 0 };
                 channel.requested_left = (p[1] as u16).min(0x8000);
                 channel.requested_right = ((p[1] >> 16) as u16).min(0x8000);
-                channel.volume_left = channel.requested_left;
-                channel.volume_right = channel.requested_right;
+                channel.volume_left = 0;
+                channel.volume_right = 0;
             }
             if flags & (1 << 14) != 0 {
                 system.services.csnd.start(index);
-                system.services.csnd.channels[index].cnt |= 0xC000;
+                let channel = &mut system.services.csnd.channels[index];
+                channel.volume_left = channel.requested_left;
+                channel.volume_right = channel.requested_right;
+                channel.cnt |= 0xC000;
             }
             write_client_state(system, client);
             return;

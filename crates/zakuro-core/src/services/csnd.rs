@@ -500,8 +500,6 @@ fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 
                 if system.services.csnd.channels[index].cnt & 0x8000 == 0 {
                     system.services.csnd.start(index);
                 }
-                system.services.csnd.channels[index].volume_left = system.services.csnd.channels[index].requested_left;
-                system.services.csnd.channels[index].volume_right = system.services.csnd.channels[index].requested_right;
                 system.services.csnd.channels[index].cnt |= 0x8000;
             } else {
                 system.services.csnd.stop(index);
@@ -549,8 +547,10 @@ fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 
                 channel.cnt = (((flags >> 12) & 3) as u16) << 12
                     | (((flags >> 10) & 3) as u16) << 10
                     | if flags & (1 << 6) != 0 { 0x40 } else { 0 };
-                channel.volume_left = (p[1] as u16).min(0x8000);
-                channel.volume_right = ((p[1] >> 16) as u16).min(0x8000);
+                channel.requested_left = (p[1] as u16).min(0x8000);
+                channel.requested_right = ((p[1] >> 16) as u16).min(0x8000);
+                channel.volume_left = channel.requested_left;
+                channel.volume_right = channel.requested_right;
             }
             if flags & (1 << 14) != 0 {
                 system.services.csnd.start(index);
@@ -664,6 +664,30 @@ mod tests {
         assert_ne!(first, second);
         assert!(csnd.clients.contains_key(&first));
         assert!(csnd.clients.contains_key(&second));
+    }
+
+    #[test]
+    fn configure_channel_preserves_requested_volume_across_pause_and_resume() {
+        let mut system = System::new(crate::Config::default());
+        let mut client = Client::default();
+        client.channel_mask = 1;
+
+        execute_command(
+            &mut system,
+            &client,
+            0x00E,
+            [0, 0x4000_3000, 0, 0, 0x1000, 0x100],
+        );
+        assert_eq!(system.services.csnd.channels[0].requested_left, 0x3000);
+        assert_eq!(system.services.csnd.channels[0].requested_right, 0x4000);
+
+        execute_command(&mut system, &client, 0x001, [0, 0, 0, 0, 0, 0]);
+        assert_eq!(system.services.csnd.channels[0].volume_left, 0);
+        assert_eq!(system.services.csnd.channels[0].volume_right, 0);
+
+        execute_command(&mut system, &client, 0x001, [0, 1, 0, 0, 0, 0]);
+        assert_eq!(system.services.csnd.channels[0].volume_left, 0x3000);
+        assert_eq!(system.services.csnd.channels[0].volume_right, 0x4000);
     }
 
     #[test]

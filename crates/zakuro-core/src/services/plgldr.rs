@@ -106,7 +106,7 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header) -> bo
                 system.services.plgldr.enabled = enabled;
                 buffer.reply(&mut system.memory, command, &[]);
             } else {
-                buffer.reply_error(&mut system.memory, command, zakuro_common::result::errors::NOT_AUTHORIZED.0);
+                buffer.reply_error(&mut system.memory, command, zakuro_common::result::errors::UNIMPLEMENTED.0);
             }
             true
         }

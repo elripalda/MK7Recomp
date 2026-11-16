@@ -28,7 +28,11 @@ Place an update `.cia` beside its matching base-game dump in the same library fo
 | USA | `0004000E00030800` | 3152 |
 | Korea | `0004000E00030A00` | 3088 |
 
-**CTGP-7 itself is not supported yet.** Its official setup requires a plugin loader that executes Luma3DS `.3gx` ARM plugins, and CTGP-7's launcher/installation flow also relies on 3DS title-install behavior. This fork currently supports filesystem and code-patch mods, but it does not load or execute `.3gx` plugins or install the CTGP-7 application CIA. Having the matching v1.2 update attached is necessary, but not sufficient, for CTGP-7.
+**3GX plugin loading is now implemented on the development branch, but CTGP-7 compatibility is not yet confirmed.** The runtime has a startup bootloader, plugin memory mapping, title compatibility checks, the `plg:ldr` service, and a CSND software mixer for PCM8, PCM16, and IMA-ADPCM. PSG/noise synthesis and CSND capture DMA are not implemented. Plugins must contain an embedded executable-check function; external `SetLoadExeParam` injection is not supported yet.
+
+For a title-specific plugin, place the `.3gx` file in the application's configured data directory under `plugins/<16-digit-title-id>/`. For Mario Kart 7 USA, the folder is `plugins/0004000000030800/`. A fallback plugin can be placed at `plugins/default.3gx`. The plugin is loaded before the game's main thread starts.
+
+This does not yet establish that CTGP-7 is playable. Its launcher/installation flow and all of its plugin dependencies still need end-to-end validation against the real CTGP-7 plugin and update on macOS.
 
 ## Playing
 

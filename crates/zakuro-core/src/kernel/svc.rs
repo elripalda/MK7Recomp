@@ -441,6 +441,7 @@ fn exit_thread(system: &mut System) {
 fn exit_process(system: &mut System) {
     log::info!("guest called svcExitProcess");
     crate::plugin_3gx_loader::unload(system);
+    crate::services::csnd::shutdown_all(system);
     for thread in &mut system.kernel.threads {
         thread.status = ThreadStatus::Dead;
     }

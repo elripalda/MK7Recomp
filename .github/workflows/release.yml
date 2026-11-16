@@ -104,7 +104,9 @@ jobs:
 
           No game ROM, game assets, generated title-specific C code, or compiled title library is included. Use your own lawfully obtained, decrypted Mario Kart 7 dump. Add it to a library folder, then use Recompile in the application; the title-specific output stays on your computer.
 
-          Supported retail title IDs: USA 00040000000AE200 and Europe 00040000000AF400.
+          Supported retail Mario Kart 7 title IDs: Japan 0004000000030600, Europe 0004000000030700, USA 0004000000030800, and Korea 0004000000030A00.
+
+          CTGP-7 support is experimental and may or may not work. It has not been validated end-to-end with this build.
 
           Windows: extract mario-kart-7-windows-x86_64.zip and run mario-kart-7.exe.
           macOS Apple silicon: extract mario-kart-7-macos-arm64.zip and open Mario Kart 7 Recompiled.app.

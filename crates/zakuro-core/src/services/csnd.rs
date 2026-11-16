@@ -408,6 +408,11 @@ fn initialize(system: &mut System, buffer: &CommandBuffer, id: u16, session: u32
     true
 }
 
+pub fn shutdown_all(system: &mut System) {
+    let sessions: Vec<u32> = system.services.csnd.clients.keys().copied().collect();
+    for session in sessions { shutdown(system, session); }
+}
+
 fn shutdown(system: &mut System, session: u32) {
     let Some(mut client) = system.services.csnd.clients.remove(&session) else { return; };
     if let Some(object) = client.shared_object {

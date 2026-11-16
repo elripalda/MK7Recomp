@@ -30,6 +30,8 @@ struct Channel {
     timer: u16,
     volume_left: u16,
     volume_right: u16,
+    requested_left: u16,
+    requested_right: u16,
     capture_volume_left: u16,
     capture_volume_right: u16,
     start: u32,

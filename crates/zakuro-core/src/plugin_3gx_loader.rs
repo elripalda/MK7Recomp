@@ -195,7 +195,25 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
     } else {
         MemoryRegion::System
     };
-    let block = system.memory.phys.allocate(region, block_size).ok_or(LoadError::OutOfMemory)?;
+    let block = match region {
+        MemoryRegion::Application => system.memory.phys.allocate_top(region, block_size),
+        MemoryRegion::System => system.memory.phys.allocate(region, block_size),
+        MemoryRegion::Base => system.memory.phys.allocate(region, block_size),
+    }
+    .ok_or(LoadError::OutOfMemory)?;
+
+    // Azahar's Mode 3 allocation comes from the top of APPLICATION memory.
+    // If the read-only config page advertises the full application region,
+    // reduce that reported amount to account for the reserved plugin block.
+    if region == MemoryRegion::Application {
+        let app_region_size = system.memory.phys.region_size(MemoryRegion::Application);
+        let config_mem = system.memory.phys.config_mem_mut();
+        let reported = u32::from_le_bytes(config_mem[0x40..0x44].try_into().unwrap());
+        if reported == app_region_size {
+            config_mem[0x40..0x44].copy_from_slice(&reported.saturating_sub(block_size).to_le_bytes());
+        }
+    }
+
     if !system.memory.zero_physical(block.addr, block.size) {
         system.memory.phys.free(block);
         return Err(LoadError::MapFailed);

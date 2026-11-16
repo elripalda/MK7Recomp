@@ -69,7 +69,7 @@ For a normal user, the prebuilt packages on the Releases page are the easiest op
 
 - **CI** runs on pushes and pull requests. It builds and tests the Rust workspace on Windows, macOS, and Linux. It also keeps a Windows executable as a temporary Actions artifact.
 - **Release** builds Windows x64, macOS Apple silicon, macOS Intel, and Linux x64 packages. It runs when a version tag is created or pushed. Once every platform build succeeds, it attaches the packages to the GitHub Release and publishes it. If you created a draft release on GitHub first, the workflow fills that draft with the packages and publishes it after the builds finish.
-- To test a branch without publishing, open **Actions → Mario Kart 7 Release → Run workflow**, enter the branch name (such as `main`) in `tag`, and set `publish` to `false`. The packages remain temporary Actions artifacts.
+- To test a branch without publishing, open **Actions → Mario Kart 7 Recompiled Release → Run workflow**, enter the branch name (such as `main`) in `tag`, and set `publish` to `false`. The packages remain temporary Actions artifacts.
 
 ### Creating version 1.0.0 on GitHub
 

@@ -73,7 +73,7 @@ jobs:
         env:
           VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
-          packaging/macos-app.sh target/release/mario-kart-7 "\${VERSION#v}" ${{ matrix.archive }}
+          packaging/macos-app.sh target/release/mario-kart-7 "${VERSION#v}" ${{ matrix.archive }}
           ditto -x -k ${{ matrix.archive }} unpacked
           RUST_LOG=info "unpacked/Mario Kart 7 Recompiled.app/Contents/MacOS/mario-kart-7" --test-pattern --headless 1 --mute ${{ matrix.try }}
 

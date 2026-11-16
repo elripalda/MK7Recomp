@@ -57,6 +57,8 @@ pub enum LoadError {
     Incompatible,
     #[error("plugin does not target this title")]
     WrongTitle,
+    #[error("plugin does not allow loading into homebrew executables")]
+    HomebrewExecutable,
     #[error("plugin has no executable checksum function")]
     MissingChecksumFunction,
     #[error("plugin memory region is already mapped")]
@@ -67,25 +69,36 @@ pub enum LoadError {
     MapFailed,
 }
 
+/// Conventional Luma path plus the project's shorter data-directory layout.
+fn plugin_roots(data_dir: &Path) -> [PathBuf; 2] {
+    [data_dir.join("luma").join("plugins"), data_dir.join("plugins")]
+}
+
 /// Looks for title-specific plugins first, then a default plugin. Returns the
 /// bootloader entry point when a plugin was successfully installed.
 pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Option<u32> {
     if !system.services.plgldr.enabled || system.services.plgldr.plugin_loaded {
         return None;
     }
+    if ((title.program_id() >> 32) as u32 & 0xFFFF_FFED) != 0x0004_0000 {
+        return None;
+    }
     let data_dir = system.config.data_dir.as_ref()?;
-    let root = data_dir.join("plugins");
-    let title_dir = root.join(format!("{:016X}", title.program_id()));
+    let roots = plugin_roots(data_dir);
+
     if system.services.plgldr.use_user_load_parameters
         && (system.services.plgldr.low_title_id == 0
             || system.services.plgldr.low_title_id == title.program_id() as u32)
         && !system.services.plgldr.requested_path.is_empty()
     {
-        let requested = system.services.plgldr.requested_path.trim_start_matches('/');
-        let mut paths = vec![data_dir.join(requested), root.join(requested)];
+        let requested = system.services.plgldr.requested_path
+            .trim_start_matches(|character| character == '/' || character == '\\');
+        let mut paths = vec![data_dir.join(requested)];
         if let Some(name) = Path::new(requested).file_name() {
-            paths.push(root.join(name));
+            for root in &roots { paths.push(root.join(name)); }
         }
+        paths.sort();
+        paths.dedup();
         for path in paths {
             if path.is_file() {
                 match load_path(system, title, game_entry, &path, false) {
@@ -98,26 +111,31 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
             }
         }
     }
-    let mut candidates: Vec<PathBuf> = std::fs::read_dir(&title_dir)
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("3gx")))
-        .collect();
+
+    let title_dir_name = format!("{:016X}", title.program_id());
+    let mut candidates = Vec::new();
+    for root in &roots {
+        if let Ok(entries) = std::fs::read_dir(root.join(&title_dir_name)) {
+            candidates.extend(entries.filter_map(Result::ok).map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("3gx"))));
+        }
+    }
     candidates.sort();
+    candidates.dedup();
     for path in candidates {
         match load_path(system, title, game_entry, &path, false) {
             Ok(()) => return Some(BOOTLOADER_ADDRESS),
             Err(error) => log::warn!("3GX plugin {} was not loaded: {error}", path.display()),
         }
     }
-    let default = root.join("default.3gx");
-    if default.is_file() {
-        match load_path(system, title, game_entry, &default, true) {
-            Ok(()) => return Some(BOOTLOADER_ADDRESS),
-            Err(error) => log::warn!("default 3GX plugin {} was not loaded: {error}", default.display()),
+
+    for root in &roots {
+        let default = root.join("default.3gx");
+        if default.is_file() {
+            match load_path(system, title, game_entry, &default, true) {
+                Ok(()) => return Some(BOOTLOADER_ADDRESS),
+                Err(error) => log::warn!("default 3GX plugin {} was not loaded: {error}", default.display()),
+            }
         }
     }
     None
@@ -131,6 +149,13 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
     }
     if !plugin.supports_title(title.program_id()) {
         return Err(LoadError::WrongTitle);
+    }
+    if !plugin.flags.allow_homebrew_load {
+        let first = system.memory.read32(game_entry);
+        let second = system.memory.read32(game_entry + 32);
+        if first == 0xEA00_0006 && second == 0xE1A0_400E {
+            return Err(LoadError::HomebrewExecutable);
+        }
     }
     let load_func = plugin.executable_check.as_deref().ok_or(LoadError::MissingChecksumFunction)?;
     if load_func.len() > 32 {

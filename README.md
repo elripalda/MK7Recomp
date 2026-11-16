@@ -13,6 +13,7 @@ This fork is deliberately limited to **Mario Kart 7 for Nintendo 3DS**. Other ga
 | USA | 0004000000030800 |
 | Korea | 0004000000030A00 |
 | Taiwan | 000400000008B400 |
+| China | 000400000008B500 |
 
 The application expects a legally obtained, decrypted dump of the game. It does not include the ROM, game code, textures, music, or other game assets.
 

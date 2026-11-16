@@ -8,13 +8,14 @@ use crate::recompile::Wanted;
 /// file endings of games Zakuro opens.
 const GAME_FILES: [&str; 4] = ["3ds", "cci", "cxi", "cia"];
 
-/// Retail base-game IDs for Mario Kart 7 (Japan, Europe, USA, Korea and Taiwan).
-const SUPPORTED_GAME_IDS: [u64; 5] = [
+/// Retail base-game IDs for Mario Kart 7 (Japan, Europe, USA, Korea, Taiwan and China).
+const SUPPORTED_GAME_IDS: [u64; 6] = [
     0x0004_0000_0003_0600,
     0x0004_0000_0003_0700,
     0x0004_0000_0003_0800,
     0x0004_0000_0003_0A00,
     0x0004_0000_0008_B400,
+    0x0004_0000_0008_B500,
 ];
 
 /// Whether a file is one of the supported Mario Kart 7 base games.
@@ -436,6 +437,7 @@ mod tests {
             0x0004_0000_0003_0800, // USA
             0x0004_0000_0003_0A00, // Korea
             0x0004_0000_0008_B400, // Taiwan
+            0x0004_0000_0008_B500, // China
         ];
         for program_id in supported {
             assert!(supports_game(program_id), "expected {program_id:016X} to be supported");

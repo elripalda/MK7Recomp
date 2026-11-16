@@ -35,7 +35,7 @@ mario-kart-7 - Mario Kart 7 for desktop
 
 usage: mario-kart-7 [rom.3ds|.cci|.cxi|.cia] [options]
 
-This build only opens the Japan, Europe, USA, Korea and Taiwan releases of Mario Kart 7.
+This build only opens the Japan, Europe, USA, Korea, Taiwan and China releases of Mario Kart 7.
 Without a game it opens a library folder and lists matching game dumps only.
 The game dump must be decrypted. Recompile it locally from the library.
 

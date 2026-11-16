@@ -278,8 +278,18 @@ impl CsndState {
 }
 
 pub fn advance(system: &mut System) {
+    let dsp_running = system.services.dsp.running;
     let (csnd, dsp) = (&mut system.services.csnd, &mut system.services.dsp);
+    let active = csnd.clients.values().any(|client| client.shared_block.is_some())
+        || csnd.channels.iter().any(|channel| channel.cnt & 0x8000 != 0);
+    if !dsp_running && active {
+        dsp.output.extend(std::iter::repeat_n([0, 0], 160));
+    }
     csnd.render_frame(&mut system.memory, &mut dsp.output);
+    if dsp.output.len() > 32_768 {
+        let excess = dsp.output.len() - 32_768;
+        dsp.output.drain(..excess);
+    }
 }
 
 pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header, session: u32) -> bool {

@@ -366,11 +366,13 @@ fn patch_bootloader(
         if let Some(value) = replacement {
             boot[at..at + 4].copy_from_slice(&value.to_le_bytes());
         } else if word == 0xDEAD_0003 {
+            // The marker is the first argument slot; overwrite it just as
+            // Azahar's MapBootloader does, then skip the remaining slots.
             for (offset, value) in load_args.iter().enumerate() {
-                let pos = at + (offset + 1) * 4;
+                let pos = at + offset * 4;
                 boot[pos..pos + 4].copy_from_slice(&value.to_le_bytes());
             }
-            index += load_args.len();
+            index += load_args.len().saturating_sub(1);
         } else if word == 0xDEAD_000A {
             for (offset, value) in load_func.iter().enumerate() {
                 let pos = at + offset * 4;
@@ -441,6 +443,32 @@ pub fn unload(system: &mut System) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bootloader_load_arguments_overwrite_the_marker_word() {
+        let mut boot = [0u8; 412];
+        boot[0..4].copy_from_slice(&0xDEAD_0003u32.to_le_bytes());
+        let args = [0x1111_1111, 0x2222_2222, 0x3333_3333, 0x4444_4444];
+        patch_bootloader(
+            &mut boot,
+            0xAAAA_AAAA,
+            0xBBBB_BBBB,
+            0x0800_0000,
+            &args,
+            0x0700_0100,
+            0x0700_1100,
+            0x1234_5678,
+            0x06FF_FFF4,
+            0x0700_0100,
+            0,
+            &[0xE320_F000],
+        );
+        for (index, expected) in args.into_iter().enumerate() {
+            let at = index * 4;
+            let actual = u32::from_le_bytes(boot[at..at + 4].try_into().unwrap());
+            assert_eq!(actual, expected);
+        }
+    }
 
     #[test]
     fn bootloader_patches_all_runtime_markers() {

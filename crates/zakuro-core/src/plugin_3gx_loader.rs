@@ -69,8 +69,13 @@ pub enum LoadError {
 }
 
 /// Conventional Luma path plus the project's shorter data-directory layout.
-fn plugin_roots(data_dir: &Path) -> [PathBuf; 2] {
-    [data_dir.join("luma").join("plugins"), data_dir.join("plugins")]
+fn plugin_roots(sdmc_root: &Path, data_dir: &Path) -> [PathBuf; 4] {
+    [
+        sdmc_root.join("luma").join("plugins"),
+        sdmc_root.join("plugins"),
+        data_dir.join("luma").join("plugins"),
+        data_dir.join("plugins"),
+    ]
 }
 
 /// Looks for title-specific plugins first, then a default plugin. Returns the
@@ -83,7 +88,8 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
         return None;
     }
     let data_dir = system.config.data_dir.as_ref()?;
-    let roots = plugin_roots(data_dir);
+    let sdmc_root = system.services.fs.user_dir.clone();
+    let roots = plugin_roots(&sdmc_root, data_dir);
 
     if system.services.plgldr.use_user_load_parameters
         && (system.services.plgldr.low_title_id == 0
@@ -92,7 +98,9 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
     {
         let requested = system.services.plgldr.requested_path
             .trim_start_matches(|character| character == '/' || character == '\\');
-        let mut paths = vec![data_dir.join(requested)];
+        // SetLoadSettings paths are SD-card-relative on real 3DS systems.
+        // Keep the data-directory path as a fallback for older configurations.
+        let mut paths = vec![sdmc_root.join(requested), data_dir.join(requested)];
         if let Some(name) = Path::new(requested).file_name() {
             for root in &roots { paths.push(root.join(name)); }
         }

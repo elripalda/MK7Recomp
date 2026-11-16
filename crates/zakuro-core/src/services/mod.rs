@@ -3,6 +3,7 @@
 pub mod apt;
 pub mod boss;
 pub mod cam;
+pub mod csnd;
 pub mod cecd;
 pub mod err;
 pub mod cfg;
@@ -67,6 +68,7 @@ impl Target {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct ServiceState {
     pub srv: srv::SrvState,
+    pub csnd: csnd::CsndState,
     pub plgldr: plgldr::PluginLoaderState,
     pub apt: apt::AptState,
     pub gsp: gsp::GspState,
@@ -114,6 +116,7 @@ pub fn handle_request(system: &mut System, target: Target) {
         "err:f" => err::handle(system, &buffer, header),
         "dsp::DSP" => dsp::handle(system, &buffer, header),
         "plg:ldr" => plgldr::handle(system, &buffer, header),
+        "csnd:SND" => csnd::handle(system, &buffer, header, match &target { Target::Service { subhandle, .. } => *subhandle, _ => 0 }),
         "ldr:ro" => ldr_ro::handle(system, &buffer, header),
         "ir:USER" => ir::handle(system, &buffer, header),
         "ir:rst" => ir_rst::handle(system, &buffer, header),

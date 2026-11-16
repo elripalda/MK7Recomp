@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use zakuro_common::memory_map::{PAGE_SIZE, FCRAM_PADDR};
+use zakuro_common::memory_map::PAGE_SIZE;
 use zakuro_fs::Title;
 
 use crate::memory::{MemoryRegion, MemoryState, Permission};
@@ -17,7 +17,6 @@ use crate::System;
 const BOOTLOADER_ADDRESS: u32 = PLUGIN_HEADER_ADDRESS - 0x1000;
 const BOOTLOADER_SIZE: u32 = 0x1000;
 const PLUGIN_HEADER_SIZE: u32 = 0x100;
-const FRAMEBUFFER_SIZE: u32 = 0xA9000;
 const BOOTLOADER: [u8; 412] = [
 0xff, 0x1f, 0x2d, 0xe9, 0x00, 0x00, 0x0f, 0xe1, 0x01, 0x00, 0x2d, 0xe9, 0xf0, 0x00, 0x8f, 0xe2,
  0x04, 0x10, 0x90, 0xe5, 0x00, 0x00, 0x90, 0xe5, 0xd4, 0x20, 0x8f, 0xe2, 0x0f, 0xe0, 0xa0, 0xe1,
@@ -187,9 +186,11 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
         return Err(LoadError::AddressConflict);
     }
 
-    // Default Luma/Citra behavior allocates from SYSTEM. Strategy 1 (mode 3)
-    // uses the application's region, matching Azahar's NewProd path.
-    let region = if system.services.plgldr.memory_strategy == 1 {
+    // New 3DS always reserves this block from the top of APPLICATION
+    // memory. Old 3DS uses APPLICATION only for explicit Mode 3; otherwise
+    // the normal Luma strategy allocates from SYSTEM.
+    let use_application_memory = system.config.new3ds || system.services.plgldr.memory_strategy == 1;
+    let region = if use_application_memory {
         MemoryRegion::Application
     } else {
         MemoryRegion::System
@@ -200,18 +201,6 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
         MemoryRegion::Base => system.memory.phys.allocate(region, block_size),
     }
     .ok_or(LoadError::OutOfMemory)?;
-
-    // Azahar's Mode 3 allocation comes from the top of APPLICATION memory.
-    // If the read-only config page advertises the full application region,
-    // reduce that reported amount to account for the reserved plugin block.
-    if region == MemoryRegion::Application {
-        let app_region_size = system.memory.phys.region_size(MemoryRegion::Application);
-        let config_mem = system.memory.phys.config_mem_mut();
-        let reported = u32::from_le_bytes(config_mem[0x40..0x44].try_into().unwrap());
-        if reported == app_region_size {
-            config_mem[0x40..0x44].copy_from_slice(&reported.saturating_sub(block_size).to_le_bytes());
-        }
-    }
 
     if !system.memory.zero_physical(block.addr, block.size) {
         system.memory.phys.free(block);
@@ -225,6 +214,18 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
     system.memory.map(PLUGIN_HEADER_ADDRESS, block.addr, exe_size as u32, rwx, state);
     system.memory.map(BOOTLOADER_ADDRESS, block.addr + boot_offset, BOOTLOADER_SIZE, rwx, MemoryState::Private);
     system.memory.map(PLUGIN_HEAP_ADDRESS, block.addr + heap_offset, heap_size, rwx, state);
+
+    let mappings_valid =
+        system.memory.mapping_at(PLUGIN_HEADER_ADDRESS).is_some_and(|m| m.paddr == block.addr)
+        && system.memory.mapping_at(BOOTLOADER_ADDRESS).is_some_and(|m| m.paddr == block.addr + boot_offset)
+        && system.memory.mapping_at(PLUGIN_HEAP_ADDRESS).is_some_and(|m| m.paddr == block.addr + heap_offset);
+    if !mappings_valid {
+        system.memory.unmap(PLUGIN_HEADER_ADDRESS, exe_size as u32);
+        system.memory.unmap(BOOTLOADER_ADDRESS, BOOTLOADER_SIZE);
+        system.memory.unmap(PLUGIN_HEAP_ADDRESS, heap_size);
+        system.memory.phys.free(block);
+        return Err(LoadError::MapFailed);
+    }
 
     let mut header = [0u8; PLUGIN_HEADER_SIZE as usize];
     put_u32(&mut header, 0x00, 0);
@@ -272,9 +273,41 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
     // Replace the game's entry with an absolute branch to the ARM trampoline.
     // The trampoline restores the two original instructions before calling
     // the plugin and finally resumes the game at its original entry.
-    system.memory.write32_privileged(game_entry, 0xE51F_F004);
-    system.memory.write32_privileged(game_entry + 4, BOOTLOADER_ADDRESS);
+    let original_words = [
+        u32::from_le_bytes(original[0..4].try_into().unwrap()),
+        u32::from_le_bytes(original[4..8].try_into().unwrap()),
+    ];
+    if !system.memory.write32_privileged(game_entry, 0xE51F_F004)
+        || !system.memory.write32_privileged(game_entry + 4, BOOTLOADER_ADDRESS)
+    {
+        system.memory.write32_privileged(game_entry, original_words[0]);
+        system.memory.write32_privileged(game_entry + 4, original_words[1]);
+        system.memory.unmap(PLUGIN_HEADER_ADDRESS, exe_size as u32);
+        system.memory.unmap(BOOTLOADER_ADDRESS, BOOTLOADER_SIZE);
+        system.memory.unmap(PLUGIN_HEAP_ADDRESS, heap_size);
+        system.memory.phys.free(block);
+        return Err(LoadError::MapFailed);
+    }
 
+    // Match Azahar's config_mem app_mem_alloc adjustment only after every
+    // mapping and the game-entry patch has succeeded.
+    let previous_app_memory_size = if region == MemoryRegion::Application {
+        let app_size = system.memory.phys.region_size(MemoryRegion::Application);
+        let config_mem = system.memory.phys.config_mem_mut();
+        let reported = u32::from_le_bytes(config_mem[0x40..0x44].try_into().unwrap());
+        if reported == app_size {
+            let adjusted = reported.saturating_sub(block_size);
+            config_mem[0x40..0x44].copy_from_slice(&adjusted.to_le_bytes());
+            Some(reported)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    system.services.plgldr.original_game_entry = Some(original_words);
+    system.services.plgldr.previous_app_memory_size = previous_app_memory_size;
     system.services.plgldr.plugin_loaded = true;
     system.services.plgldr.plugin_path = path.to_string_lossy().into_owned();
     system.services.plgldr.is_default_path = is_default;
@@ -285,8 +318,6 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
     system.services.plgldr.exe_size = exe_size as u32;
     system.services.plgldr.heap_size = heap_size;
     log::info!("loaded 3GX plugin '{}' by {} ({} bytes executable, {} bytes heap)", plugin.title, plugin.author, exe_size, heap_size);
-    let _ = FRAMEBUFFER_SIZE; // Reserved for the GSP framebuffer handoff.
-    let _ = FCRAM_PADDR;
     Ok(())
 }
 
@@ -343,24 +374,55 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
     bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
-/// Releases plugin mappings and its contiguous physical block when the title exits.
+/// Releases plugin mappings and restores the game entry when the title exits.
 pub fn unload(system: &mut System) {
-    let state = &mut system.services.plgldr;
-    if !state.plugin_loaded {
-        return;
+    let (
+        block,
+        exe_size,
+        heap_size,
+        game_entry,
+        original_entry,
+        previous_app_memory_size,
+    ) = {
+        let state = &mut system.services.plgldr;
+        if !state.plugin_loaded {
+            return;
+        }
+        (
+            state.memory_block.take(),
+            state.exe_size,
+            state.heap_size,
+            state.plugin_entry,
+            state.original_game_entry.take(),
+            state.previous_app_memory_size.take(),
+        )
+    };
+
+    if let Some([first, second]) = original_entry {
+        system.memory.write32_privileged(game_entry, first);
+        system.memory.write32_privileged(game_entry + 4, second);
     }
-    if let Some(block) = state.memory_block.take() {
-        system.memory.unmap(PLUGIN_HEADER_ADDRESS, state.exe_size);
+    if let Some(previous) = previous_app_memory_size {
+        let config_mem = system.memory.phys.config_mem_mut();
+        config_mem[0x40..0x44].copy_from_slice(&previous.to_le_bytes());
+    }
+    if let Some(block) = block {
+        system.memory.unmap(PLUGIN_HEADER_ADDRESS, exe_size);
         system.memory.unmap(BOOTLOADER_ADDRESS, BOOTLOADER_SIZE);
-        system.memory.unmap(PLUGIN_HEAP_ADDRESS, state.heap_size);
+        system.memory.unmap(PLUGIN_HEAP_ADDRESS, heap_size);
         system.memory.phys.free(block);
     }
+
+    let state = &mut system.services.plgldr;
     state.plugin_loaded = false;
+    state.plugin_path.clear();
+    state.is_default_path = false;
     state.plugin_process_id = u32::MAX;
     state.memory_region = 0;
     state.exe_size = 0;
     state.heap_size = 0;
     state.plugin_entry = 0;
+    state.memory_block = None;
     log::info!("unloaded 3GX plugin");
 }
 

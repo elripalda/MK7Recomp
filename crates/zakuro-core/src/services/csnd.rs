@@ -500,6 +500,8 @@ fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 
                 if system.services.csnd.channels[index].cnt & 0x8000 == 0 {
                     system.services.csnd.start(index);
                 }
+                system.services.csnd.channels[index].volume_left = system.services.csnd.channels[index].requested_left;
+                system.services.csnd.channels[index].volume_right = system.services.csnd.channels[index].requested_right;
                 system.services.csnd.channels[index].cnt |= 0x8000;
             } else {
                 system.services.csnd.stop(index);
@@ -513,6 +515,8 @@ fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 
                 if system.services.csnd.channels[index].cnt & 0x8000 == 0 {
                     system.services.csnd.start(index);
                 }
+                system.services.csnd.channels[index].volume_left = system.services.csnd.channels[index].requested_left;
+                system.services.csnd.channels[index].volume_right = system.services.csnd.channels[index].requested_right;
                 system.services.csnd.channels[index].cnt |= 0xC000;
             } else {
                 // The hardware fades before pausing. This implementation
@@ -580,8 +584,10 @@ fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 
             }
             0x008 => channel.timer = (0x1_0000u32.wrapping_sub(p[1])) as u16,
             0x009 => {
-                channel.volume_left = (p[1] as u16).min(0x8000);
-                channel.volume_right = ((p[1] >> 16) as u16).min(0x8000);
+                channel.requested_left = (p[1] as u16).min(0x8000);
+                channel.requested_right = ((p[1] >> 16) as u16).min(0x8000);
+                channel.volume_left = channel.requested_left;
+                channel.volume_right = channel.requested_right;
                 channel.capture_volume_left = p[2] as u16;
                 channel.capture_volume_right = (p[2] >> 16) as u16;
             }

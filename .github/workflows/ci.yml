@@ -1,6 +1,10 @@
 # Builds and tests Mario Kart 7 on Linux, macOS and Windows.
 name: Mario Kart 7 Recompiled CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
   pull_request:

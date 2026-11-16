@@ -503,7 +503,10 @@ fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 
                 system.services.csnd.channels[index].cnt |= 0x8000;
             } else {
                 system.services.csnd.stop(index);
-                system.services.csnd.channels[index].holding = false;
+                let channel = &mut system.services.csnd.channels[index];
+                channel.holding = false;
+                channel.volume_left = 0;
+                channel.volume_right = 0;
             }
             return;
         }
@@ -691,6 +694,13 @@ mod tests {
         execute_command(&mut system, &client, 0x001, [0, 1, 0, 0, 0, 0]);
         assert_eq!(system.services.csnd.channels[0].volume_left, 0x3000);
         assert_eq!(system.services.csnd.channels[0].volume_right, 0x4000);
+
+        execute_command(&mut system, &client, 0x000, [0, 0, 0, 0, 0, 0]);
+        assert_eq!(system.services.csnd.channels[0].volume_left, 0);
+        assert_eq!(system.services.csnd.channels[0].volume_right, 0);
+        execute_command(&mut system, &client, 0x000, [0, 1, 0, 0, 0, 0]);
+        assert_eq!(system.services.csnd.channels[0].volume_left, 0);
+        assert_eq!(system.services.csnd.channels[0].volume_right, 0);
     }
 
     #[test]

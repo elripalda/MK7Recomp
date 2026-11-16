@@ -210,6 +210,11 @@ impl CsndState {
     }
 
     pub fn render_frame(&mut self, memory: &mut Memory, output: &mut Vec<[i16; 2]>) {
+        if !self.clients.values().any(|client| client.shared_block.is_some())
+            && !self.channels.iter().any(|channel| channel.cnt & 0x8000 != 0)
+        {
+            return;
+        }
         let mut mixed = [[0i16; 2]; 160];
         for frame in &mut mixed {
             let mut left = 0i64;

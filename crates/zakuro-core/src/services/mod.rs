@@ -21,6 +21,7 @@ pub mod ir_rst;
 pub mod keyboard;
 pub mod ldr_ro;
 pub mod mic;
+pub mod plgldr;
 pub mod mii_selector;
 pub mod misc;
 pub mod nfc;
@@ -66,6 +67,7 @@ impl Target {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct ServiceState {
     pub srv: srv::SrvState,
+    pub plgldr: plgldr::PluginLoaderState,
     pub apt: apt::AptState,
     pub gsp: gsp::GspState,
     pub hid: hid::HidState,
@@ -111,6 +113,7 @@ pub fn handle_request(system: &mut System, target: Target) {
         "cfg:u" | "cfg:s" | "cfg:i" => cfg::handle(system, &buffer, header),
         "err:f" => err::handle(system, &buffer, header),
         "dsp::DSP" => dsp::handle(system, &buffer, header),
+        "plg:ldr" => plgldr::handle(system, &buffer, header),
         "ldr:ro" => ldr_ro::handle(system, &buffer, header),
         "ir:USER" => ir::handle(system, &buffer, header),
         "ir:rst" => ir_rst::handle(system, &buffer, header),

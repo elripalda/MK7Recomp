@@ -24,24 +24,6 @@ const INVALID_STATE: u32 = 0xC8A0_B7FF;
 const ALREADY_INITIALIZED: u32 = 0xE0A0_183B;
 const INVALID_ADDRESS: u32 = 0xE0E3_FFF6;
 
-fn start_channel(ch: &mut Channel) {
-    ch.block_address = ch.start;
-    ch.block_size = ch.size;
-    ch.position = 0;
-    ch.high_nibble = false;
-    ch.holding = false;
-    ch.counter = 0;
-    ch.previous = 0;
-    ch.current = 0;
-    ch.predictor = ch.adpcm_state as u16 as i16;
-    ch.step_index = ((ch.adpcm_state >> 16) & 0x7F).min(88) as u8;
-}
-
-fn stop_channel(ch: &mut Channel) {
-    ch.adpcm_state = ch.predictor as u16 as u32 | ((ch.step_index as u32) << 16);
-    ch.cnt &= !0x8000;
-}
-
 #[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 struct Channel {
     cnt: u16,
@@ -66,9 +48,6 @@ struct Channel {
     predictor: i16,
     step_index: u8,
 }
-
-#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
-struct CaptureUnit { cnt: u16, timer: u16, address: u32, size: u32 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct Client {
@@ -102,9 +81,6 @@ pub struct CsndState {
     clients: BTreeMap<u32, Client>,
     next_session: u32,
     capture_in_use: [bool; CAPTURES],
-    captures: [CaptureUnit; CAPTURES],
-    channel_mask_register: u32,
-    capture_mask_register: u8,
     master_volume: u16,
 }
 
@@ -115,9 +91,6 @@ impl Default for CsndState {
             clients: BTreeMap::new(),
             next_session: 1,
             capture_in_use: [false; CAPTURES],
-            captures: [CaptureUnit::default(); CAPTURES],
-            channel_mask_register: 0,
-            capture_mask_register: 0,
             master_volume: 0x8000,
         }
     }
@@ -136,11 +109,23 @@ impl CsndState {
     }
 
     fn start(&mut self, index: usize) {
-        start_channel(&mut self.channels[index]);
+        let channel = &mut self.channels[index];
+        channel.block_address = channel.start;
+        channel.block_size = channel.size;
+        channel.position = 0;
+        channel.high_nibble = false;
+        channel.holding = false;
+        channel.counter = 0;
+        channel.previous = 0;
+        channel.current = 0;
+        channel.predictor = channel.adpcm_state as u16 as i16;
+        channel.step_index = ((channel.adpcm_state >> 16) & 0x7F).min(88) as u8;
     }
 
     fn stop(&mut self, index: usize) {
-        stop_channel(&mut self.channels[index]);
+        let channel = &mut self.channels[index];
+        channel.adpcm_state = channel.predictor as u16 as u32 | ((channel.step_index as u32) << 16);
+        channel.cnt &= !0x8000;
     }
 
     fn sample(&mut self, memory: &mut Memory, index: usize) -> i16 {
@@ -186,36 +171,42 @@ impl CsndState {
 
     fn step(&mut self, memory: &mut Memory, index: usize) {
         let (loop_mode, position, block_size) = {
-            let ch = &self.channels[index];
-            ((ch.cnt >> 10) & 3, ch.position, ch.block_size)
+            let channel = self.channels[index];
+            ((channel.cnt >> 10) & 3, channel.position, channel.block_size)
         };
+
         if loop_mode != 0 && position >= block_size {
             if loop_mode == 2 {
                 let hold = self.channels[index].cnt & 0x80 != 0;
-                stop_channel(&mut self.channels[index]);
+                self.stop(index);
                 self.channels[index].holding = hold;
                 return;
             }
+
             {
-                let ch = &mut self.channels[index];
-                ch.block_address = ch.loop_address;
-                if loop_mode == 1 { ch.block_size = ch.size; }
-                ch.position = 0;
-                ch.high_nibble = false;
-                if ch.loop_adpcm_state & 0x8000_0000 != 0 {
-                    ch.predictor = ch.loop_adpcm_state as u16 as i16;
-                    ch.step_index = ((ch.loop_adpcm_state >> 16) & 0x7F).min(88) as u8;
+                let channel = &mut self.channels[index];
+                channel.block_address = channel.loop_address;
+                if loop_mode == 1 {
+                    channel.block_size = channel.size;
+                }
+                channel.position = 0;
+                channel.high_nibble = false;
+                if channel.loop_adpcm_state & 0x8000_0000 != 0 {
+                    channel.predictor = channel.loop_adpcm_state as u16 as i16;
+                    channel.step_index = ((channel.loop_adpcm_state >> 16) & 0x7F).min(88) as u8;
                 }
             }
+
             if self.channels[index].block_size == 0 {
-                stop_channel(&mut self.channels[index]);
+                self.stop(index);
                 return;
             }
         }
-        let sample = self.sample(memory, index);
-        let ch = &mut self.channels[index];
-        ch.previous = ch.current;
-        ch.current = sample;
+
+        let current = self.sample(memory, index);
+        let channel = &mut self.channels[index];
+        channel.previous = channel.current;
+        channel.current = current;
     }
 
     pub fn render_frame(&mut self, memory: &mut Memory, output: &mut Vec<[i16; 2]>) {
@@ -224,49 +215,57 @@ impl CsndState {
         {
             return;
         }
+
         let mut mixed = [[0i16; 2]; 160];
         for frame in &mut mixed {
             let mut left = 0i64;
             let mut right = 0i64;
+
             for index in 0..CHANNELS {
-                if self.channels[index].cnt & 0x8000 == 0 {
-                    let ch = &self.channels[index];
-                    if ch.holding {
-                        left += (ch.current as i64 * ch.volume_left as i64) >> 15;
-                        right += (ch.current as i64 * ch.volume_right as i64) >> 15;
+                let initial = self.channels[index];
+                if initial.cnt & 0x8000 == 0 {
+                    if initial.holding {
+                        left += (initial.current as i64 * initial.volume_left as i64) >> 15;
+                        right += (initial.current as i64 * initial.volume_right as i64) >> 15;
                     }
                     continue;
                 }
-                if self.channels[index].cnt & 0x4000 != 0 {
-                    let period = (0x1_0000u32 - self.channels[index].timer as u32).max(0x42);
+
+                if initial.cnt & 0x4000 != 0 {
+                    let period = (0x1_0000u32 - initial.timer as u32).max(0x42);
                     self.channels[index].counter += 2048;
-                    loop {
-                        if self.channels[index].counter < period || self.channels[index].cnt & 0x8000 == 0 {
-                            break;
-                        }
+                    while self.channels[index].counter >= period
+                        && self.channels[index].cnt & 0x8000 != 0
+                    {
                         self.channels[index].counter -= period;
                         self.step(memory, index);
                     }
                 }
-                let ch = &self.channels[index];
-                if ch.cnt & 0x8000 == 0 {
-                    if ch.holding {
-                        left += (ch.current as i64 * ch.volume_left as i64) >> 15;
-                        right += (ch.current as i64 * ch.volume_right as i64) >> 15;
+
+                let channel = self.channels[index];
+                if channel.cnt & 0x8000 == 0 {
+                    if channel.holding {
+                        left += (channel.current as i64 * channel.volume_left as i64) >> 15;
+                        right += (channel.current as i64 * channel.volume_right as i64) >> 15;
                     }
                     continue;
                 }
-                let sample = if ch.cnt & 0x40 != 0 {
-                    let period = (0x1_0000u32 - ch.timer as u32).max(0x42) as i64;
-                    let delta = ch.current as i64 - ch.previous as i64;
-                    ch.previous as i64 + delta * ch.counter as i64 / period
-                } else { ch.current as i64 };
-                left += (sample * ch.volume_left as i64) >> 15;
-                right += (sample * ch.volume_right as i64) >> 15;
+
+                let sample = if channel.cnt & 0x40 != 0 {
+                    let period = (0x1_0000u32 - channel.timer as u32).max(0x42) as i64;
+                    let delta = channel.current as i64 - channel.previous as i64;
+                    channel.previous as i64 + delta * channel.counter as i64 / period
+                } else {
+                    channel.current as i64
+                };
+                left += (sample * channel.volume_left as i64) >> 15;
+                right += (sample * channel.volume_right as i64) >> 15;
             }
+
             frame[0] = ((left * self.master_volume as i64) >> 15).clamp(-32768, 32767) as i16;
             frame[1] = ((right * self.master_volume as i64) >> 15).clamp(-32768, 32767) as i16;
         }
+
         if output.len() < mixed.len() {
             output.resize(mixed.len(), [0, 0]);
         }
@@ -275,22 +274,12 @@ impl CsndState {
             dest[0] = dest[0].saturating_add(source[0]);
             dest[1] = dest[1].saturating_add(source[1]);
         }
-    
+    }
 }
 
 pub fn advance(system: &mut System) {
-    let dsp_running = system.services.dsp.running;
     let (csnd, dsp) = (&mut system.services.csnd, &mut system.services.dsp);
-    let active = csnd.clients.values().any(|client| client.shared_block.is_some())
-        || csnd.channels.iter().any(|channel| channel.cnt & 0x8000 != 0);
-    if !dsp_running && active {
-        dsp.output.extend(std::iter::repeat_n([0, 0], 160));
-    }
     csnd.render_frame(&mut system.memory, &mut dsp.output);
-    if dsp.output.len() > 32_768 {
-        let excess = dsp.output.len() - 32_768;
-        dsp.output.drain(..excess);
-    }
 }
 
 pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header, session: u32) -> bool {
@@ -300,7 +289,8 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header, sessi
         0x0002 => { shutdown(system, session); buffer.reply(&mut system.memory, id, &[]); true }
         0x0003 => execute_commands(system, buffer, id, session),
         0x0005 => {
-            system.services.csnd.client(session).channel_mask = CLIENT_CHANNELS;
+            let client = system.services.csnd.client(session);
+            client.channel_mask = CLIENT_CHANNELS;
             buffer.reply(&mut system.memory, id, &[CLIENT_CHANNELS]);
             true
         }
@@ -338,8 +328,8 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header, sessi
             let size = buffer.get(&mut system.memory, 2);
             let end = address.checked_add(size);
             let valid = end.is_some_and(|end| {
-                ((0x1400_0000..=0x1C00_0000).contains(&address) && end <= 0x1C00_0000)
-                    || ((0x3000_0000..=0x4000_0000).contains(&address) && end <= 0x4000_0000)
+                (0x1400_0000..=0x1C00_0000).contains(&address) && end <= 0x1C00_0000
+                    || (0x3000_0000..=0x4000_0000).contains(&address) && end <= 0x4000_0000
             });
             if valid { buffer.reply(&mut system.memory, id, &[]); }
             else { buffer.reply_error(&mut system.memory, id, INVALID_ADDRESS); }
@@ -360,9 +350,9 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header, sessi
 }
 
 fn initialize(system: &mut System, buffer: &CommandBuffer, id: u16, session: u32) -> bool {
-    let requested = buffer.get(&mut system.memory, 1).max(0x1000);
-    let size = requested.saturating_add(0xFFF) & !0xFFF;
-    if system.services.csnd.client(session).shared_block.is_some() {
+    let size = buffer.get(&mut system.memory, 1).max(0x1000).saturating_add(0xFFF) & !0xFFF;
+    let client = system.services.csnd.client(session);
+    if client.shared_block.is_some() {
         buffer.reply_error(&mut system.memory, id, ALREADY_INITIALIZED);
         return true;
     }
@@ -370,11 +360,7 @@ fn initialize(system: &mut System, buffer: &CommandBuffer, id: u16, session: u32
         buffer.reply_error(&mut system.memory, id, zakuro_common::result::errors::OUT_OF_MEMORY.0);
         return true;
     };
-    if !system.memory.zero_physical(block.addr, block.size) {
-        system.memory.phys.free(block);
-        buffer.reply_error(&mut system.memory, id, zakuro_common::result::errors::OUT_OF_MEMORY.0);
-        return true;
-    }
+    system.memory.zero_physical(block.addr, block.size);
     let master_offset = buffer.get(&mut system.memory, 2);
     let channel_offset = buffer.get(&mut system.memory, 3);
     let capture_offset = buffer.get(&mut system.memory, 4);
@@ -408,11 +394,6 @@ fn initialize(system: &mut System, buffer: &CommandBuffer, id: u16, session: u32
     true
 }
 
-pub fn shutdown_all(system: &mut System) {
-    let sessions: Vec<u32> = system.services.csnd.clients.keys().copied().collect();
-    for session in sessions { shutdown(system, session); }
-}
-
 fn shutdown(system: &mut System, session: u32) {
     let Some(mut client) = system.services.csnd.clients.remove(&session) else { return; };
     if let Some(object) = client.shared_object {
@@ -428,11 +409,13 @@ fn shutdown(system: &mut System, session: u32) {
     }
     if let Some(block) = client.shared_block.take() { system.memory.phys.free(block); }
     for unit in 0..CAPTURES {
-        if client.capture_mask & (1 << unit) != 0 {
-            system.services.csnd.capture_in_use[unit] = false;
-            system.services.csnd.captures[unit] = CaptureUnit::default();
-        }
+        if client.capture_mask & (1 << unit) != 0 { system.services.csnd.capture_in_use[unit] = false; }
     }
+}
+
+/// Releases the per-session CSND resources when its service handle is closed.
+pub fn close_session(system: &mut System, session: u32) {
+    shutdown(system, session);
 }
 
 fn execute_commands(system: &mut System, buffer: &CommandBuffer, id: u16, session: u32) -> bool {
@@ -460,112 +443,150 @@ fn execute_commands(system: &mut System, buffer: &CommandBuffer, id: u16, sessio
         offset = next as u32;
         executed += 1;
     }
-    if first.checked_add(COMMAND_SIZE).is_some_and(|end| end <= block.size) {
-        let _ = system.memory.write_physical(block.addr + first + 4, &[1]);
-    }
+    let _ = system.memory.write_physical(block.addr + first + 4, &[1]);
     buffer.reply(&mut system.memory, id, &[]);
     true
 }
 
 fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 6]) {
     let index = (p[0] & 0x1F) as usize;
-    if command < 0x100 && client.channel_mask & (1 << index) == 0 { return; }
-    if (0x100..0x200).contains(&command) && index >= CAPTURES { return; }
-    let busy = system.services.csnd.channels[index].cnt & 0x8000 != 0;
+    if command < 0x100 && client.channel_mask & (1 << index) == 0 {
+        return;
+    }
+    if (0x100..0x200).contains(&command) && index >= CAPTURES {
+        return;
+    }
+    if command == 0x300 {
+        write_client_state(system, client);
+        return;
+    }
+
+    // CSND capture DMA and PSG/noise are not implemented by the software
+    // channel model. Their commands remain recognized rather than falling
+    // through to the generic unimplemented-service path.
+    if (0x100..=0x106).contains(&command)
+        || command == 0x200
+        || (0x00F..=0x010).contains(&command)
+    {
+        return;
+    }
+
     match command {
+        // SetPlayStateRaw
         0x000 => {
-            let ch = &mut system.services.csnd.channels[index];
             if p[1] != 0 {
-                if ch.cnt & 0x8000 == 0 { start_channel(ch); }
-                ch.cnt |= 0x8000;
-            } else { ch.cnt &= !0x8000; ch.holding = false; }
+                if system.services.csnd.channels[index].cnt & 0x8000 == 0 {
+                    system.services.csnd.start(index);
+                }
+                system.services.csnd.channels[index].cnt |= 0x8000;
+            } else {
+                system.services.csnd.stop(index);
+                system.services.csnd.channels[index].holding = false;
+            }
+            return;
         }
+        // SetPlayState
         0x001 => {
             if p[1] != 0 {
-                let ch = &mut system.services.csnd.channels[index];
-                if ch.cnt & 0x8000 == 0 { start_channel(ch); }
-                ch.cnt |= 0xC000;
+                if system.services.csnd.channels[index].cnt & 0x8000 == 0 {
+                    system.services.csnd.start(index);
+                }
+                system.services.csnd.channels[index].cnt |= 0xC000;
             } else {
-                system.services.csnd.channels[index].cnt &= !0x4000;
+                // The hardware fades before pausing. This implementation
+                // applies the terminal silent/pause state immediately.
+                let channel = &mut system.services.csnd.channels[index];
+                channel.cnt &= !0x4000;
+                channel.volume_left = 0;
+                channel.volume_right = 0;
             }
+            return;
         }
-        0x002 if !busy => {
-            let ch = &mut system.services.csnd.channels[index];
-            ch.cnt = (ch.cnt & !0x3000) | (((p[1] & 0xFF) as u16) << 12);
-        }
-        0x003 => {
-            let ch = &mut system.services.csnd.channels[index];
-            ch.loop_address = p[1]; ch.size = p[2] & 0x07FF_FFFF;
-        }
-        0x004 if !busy => {
-            let ch = &mut system.services.csnd.channels[index];
-            ch.cnt = (ch.cnt & !0x0C00) | (((p[1] & 3) as u16) << 10);
-        }
-        0x005 => {
-            let ch = &mut system.services.csnd.channels[index];
-            if p[1] != 0 { ch.cnt |= 0x80; } else { ch.cnt &= !0x80; }
-        }
-        0x006 if !busy => {
-            let ch = &mut system.services.csnd.channels[index];
-            if p[1] != 0 { ch.cnt |= 0x40; } else { ch.cnt &= !0x40; }
-        }
-        0x008 => system.services.csnd.channels[index].timer = (0x1_0000u32.wrapping_sub(p[1])) as u16,
-        0x009 => {
-            let ch = &mut system.services.csnd.channels[index];
-            ch.volume_left = (p[1] as u16).min(0x8000);
-            ch.volume_right = ((p[1] >> 16) as u16).min(0x8000);
-            ch.capture_volume_left = p[2] as u16;
-            ch.capture_volume_right = (p[2] >> 16) as u16;
-        }
-        0x00A => {
-            let ch = &mut system.services.csnd.channels[index];
-            ch.start = p[1]; ch.size = p[2] & 0x07FF_FFFF; ch.adpcm_state = 0;
-            let state_at = client.channel_offset + channel_position(client.channel_mask, index) * CHANNEL_STATE_SIZE + 8;
-            write_shared_u32(system, client, state_at, 0);
-        }
-        0x00B => {
-            let ch = &mut system.services.csnd.channels[index];
-            ch.adpcm_state = (p[1] & 0xFFFF) | ((p[2] & 0xFF) << 16); ch.loop_adpcm_state = 0;
-        }
-        0x00C => system.services.csnd.channels[index].loop_adpcm_state = (p[1] & 0xFFFF) | ((p[2] & 0xFF) << 16) | 0x8000_0000,
-        0x00D => {
-            let ch = &mut system.services.csnd.channels[index];
-            if p[1] == 0 { ch.loop_adpcm_state &= !0x8000_0000; } else { ch.loop_adpcm_state |= 0x8000_0000; }
-        }
+        // ConfigureChannel
         0x00E => {
             let flags = p[0];
-            let ch = &mut system.services.csnd.channels[index];
-            ch.cnt = 0;
-            ch.timer = (0x1_0000u32.wrapping_sub(flags >> 16)) as u16;
-            ch.capture_volume_left = p[2] as u16;
-            ch.capture_volume_right = (p[2] >> 16) as u16;
-            ch.loop_address = p[4]; ch.size = p[5] & 0x07FF_FFFF; ch.start = p[3];
-            ch.adpcm_state = 0; ch.loop_adpcm_state = 0;
-            ch.cnt = (((flags >> 12) & 3) as u16) << 12
-                | (((flags >> 10) & 3) as u16) << 10
-                | if flags & (1 << 6) != 0 { 0x40 } else { 0 };
-            ch.volume_left = (p[1] as u16).min(0x8000);
-            ch.volume_right = ((p[1] >> 16) as u16).min(0x8000);
-            if flags & (1 << 14) != 0 {
-                start_channel(ch);
-                ch.cnt |= 0xC000;
+            {
+                let channel = &mut system.services.csnd.channels[index];
+                channel.cnt = 0;
+                channel.timer = (0x1_0000u32.wrapping_sub(flags >> 16)) as u16;
+                channel.volume_left = 0;
+                channel.volume_right = 0;
+                channel.capture_volume_left = p[2] as u16;
+                channel.capture_volume_right = (p[2] >> 16) as u16;
+                channel.loop_address = p[4];
+                channel.size = p[5] & 0x07FF_FFFF;
+                channel.start = p[3];
+                if ((flags >> 12) & 3) != 2 {
+                    channel.adpcm_state = 0;
+                    channel.loop_adpcm_state = 0;
+                }
+                channel.cnt = (((flags >> 12) & 3) as u16) << 12
+                    | (((flags >> 10) & 3) as u16) << 10
+                    | if flags & (1 << 6) != 0 { 0x40 } else { 0 };
+                channel.volume_left = (p[1] as u16).min(0x8000);
+                channel.volume_right = ((p[1] >> 16) as u16).min(0x8000);
             }
+            if flags & (1 << 14) != 0 {
+                system.services.csnd.start(index);
+                system.services.csnd.channels[index].cnt |= 0xC000;
+            }
+            write_client_state(system, client);
+            return;
         }
-        0x100 => { let capture = &mut system.services.csnd.captures[index]; if p[1] != 0 { capture.cnt |= 0x8000; } else { capture.cnt &= !0x8000; } }
-        0x101 => { let capture = &mut system.services.csnd.captures[index]; capture.cnt = (capture.cnt & !1) | (p[1] as u16 & 1); }
-        0x102 => { let capture = &mut system.services.csnd.captures[index]; capture.cnt = (capture.cnt & !2) | (((p[1] & 1) as u16) << 1); }
-        0x103 => { let capture = &mut system.services.csnd.captures[index]; capture.cnt = (capture.cnt & !4) | if p[1] != 0 { 4 } else { 0 }; }
-        0x104 => system.services.csnd.captures[index].timer = (0x1_0000u32.wrapping_sub(p[1])) as u16,
-        0x105 => { let capture = &mut system.services.csnd.captures[index]; capture.address = p[1]; capture.size = p[2]; }
-        0x106 => { let capture = &mut system.services.csnd.captures[index]; capture.timer = (0x1_0000u32.wrapping_sub(p[1] >> 16)) as u16; capture.address = p[2]; capture.size = p[3]; capture.cnt = (p[1] as u16) & 0x8007; }
-        0x200 => { system.services.csnd.channel_mask_register = client.channel_mask; system.services.csnd.capture_mask_register = client.capture_mask; }
-        0x300 => write_client_state(system, client),
         _ => {}
     }
+
+    let busy = system.services.csnd.channels[index].cnt & 0x8000 != 0;
+    {
+        let channel = &mut system.services.csnd.channels[index];
+        match command {
+            0x002 if !busy => {
+                channel.cnt = (channel.cnt & !0x3000) | (((p[1] & 0xFF) as u16) << 12);
+            }
+            0x003 => {
+                channel.loop_address = p[1];
+                channel.size = p[2] & 0x07FF_FFFF;
+            }
+            0x004 if !busy => {
+                channel.cnt = (channel.cnt & !0x0C00) | (((p[1] & 3) as u16) << 10);
+            }
+            0x005 => {
+                if p[1] != 0 { channel.cnt |= 0x80; } else { channel.cnt &= !0x80; }
+            }
+            0x006 if !busy => {
+                if p[1] != 0 { channel.cnt |= 0x40; } else { channel.cnt &= !0x40; }
+            }
+            0x008 => channel.timer = (0x1_0000u32.wrapping_sub(p[1])) as u16,
+            0x009 => {
+                channel.volume_left = (p[1] as u16).min(0x8000);
+                channel.volume_right = ((p[1] >> 16) as u16).min(0x8000);
+                channel.capture_volume_left = p[2] as u16;
+                channel.capture_volume_right = (p[2] >> 16) as u16;
+            }
+            // SetBlock changes source range and size; decoder state is retained.
+            0x00A => {
+                channel.start = p[1];
+                channel.size = p[2] & 0x07FF_FFFF;
+            }
+            0x00B => {
+                channel.adpcm_state = (p[1] & 0xFFFF) | ((p[2] & 0xFF) << 16);
+                channel.loop_adpcm_state = 0;
+            }
+            0x00C => {
+                channel.loop_adpcm_state =
+                    (p[1] & 0xFFFF) | ((p[2] & 0xFF) << 16) | 0x8000_0000;
+            }
+            0x00D => {
+                if p[1] == 0 { channel.loop_adpcm_state &= !0x8000_0000; }
+                else { channel.loop_adpcm_state |= 0x8000_0000; }
+            }
+            _ => {}
+        }
+    }
+    if command == 0x00A {
+        write_client_state(system, client);
+    }
 }
-
-
-
 
 fn write_shared(system: &mut System, client: &Client, offset: u32, bytes: &[u8]) {
     let Some(block) = client.shared_block else { return; };
@@ -578,18 +599,16 @@ fn write_shared_u32(system: &mut System, client: &Client, offset: u32, value: u3
     write_shared(system, client, offset, &value.to_le_bytes());
 }
 
-fn channel_position(mask: u32, channel: usize) -> u32 {
-    (0..channel).filter(|index| mask & (1 << index) != 0).count() as u32
-}
-
 fn write_client_state(system: &mut System, client: &Client) {
-    let channel_mask = system.services.csnd.channel_mask_register & client.channel_mask;
-    let capture_mask = (system.services.csnd.capture_mask_register & client.capture_mask) as u32;
-    write_shared_u32(system, client, client.master_offset, channel_mask);
-    write_shared_u32(system, client, client.master_offset + 4, capture_mask);
+    let mask = client.channel_mask;
+    let active_mask = (0..CHANNELS).fold(0u32, |bits, i| {
+        if mask & (1 << i) != 0 && system.services.csnd.channels[i].cnt & 0xC000 == 0xC000 { bits | (1 << i) } else { bits }
+    });
+    write_shared_u32(system, client, client.master_offset, active_mask);
+    write_shared_u32(system, client, client.master_offset + 4, client.capture_mask as u32);
     let mut position = 0u32;
     for index in 0..CHANNELS {
-        if client.channel_mask & (1 << index) == 0 { continue; }
+        if mask & (1 << index) == 0 { continue; }
         let ch = system.services.csnd.channels[index];
         let at = client.channel_offset + position * CHANNEL_STATE_SIZE;
         write_shared(system, client, at, &[u8::from(ch.cnt & 0xC000 == 0xC000)]);
@@ -632,7 +651,7 @@ mod tests {
         channel.volume_left = 0x8000;
         channel.volume_right = 0x8000;
         channel.cnt = 0xC800; // enabled, running, one-shot loop mode, PCM8
-        start_channel(channel);
+        csnd.start(0);
         let mut output = vec![[0i16; 2]; 160];
         csnd.render_frame(&mut memory, &mut output);
         assert!(output.iter().any(|sample| sample[0] > 0 && sample[1] > 0));

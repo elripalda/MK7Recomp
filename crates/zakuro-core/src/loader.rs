@@ -123,7 +123,9 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
     system.kernel.heap_top = HEAP_VADDR;
 
     // the main thread starts at the beginning of .text.
-    let entry = exheader.text.address;
+    let game_entry = exheader.text.address;
+    let entry = crate::plugin_3gx_loader::load_for_title(&mut system, &title, game_entry)
+        .unwrap_or(game_entry);
     let priority = exheader.main_thread_priority as u32;
     let main = system.kernel.create_thread(
         "main",

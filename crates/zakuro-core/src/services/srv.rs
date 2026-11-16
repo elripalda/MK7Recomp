@@ -53,12 +53,17 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header) -> bo
             let len = buffer.get(&mut system.memory, 3).min(8) as usize;
             let name = String::from_utf8_lossy(&bytes[..len]).into_owned();
 
+            let subhandle = if name == "csnd:SND" {
+                system.services.csnd.open_session()
+            } else {
+                0
+            };
             let object = system
                 .kernel
                 .objects
                 .insert(KObject::ClientSession(ClientSession {
                     service: name.clone(),
-                    subhandle: 0,
+                    subhandle,
                 }));
             let handle = system
                 .kernel

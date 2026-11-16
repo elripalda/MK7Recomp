@@ -23,6 +23,13 @@ const MAGIC: &[u8; 8] = b"ZAKUROST";
 /// what a state holds changes from one version to the next.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Save-state compatibility is independent of the application binary version.
+/// 1.0.1 appends defaulted service-state fields and keeps the old serialized
+/// prefix unchanged, so 1.0.0 states remain readable.
+fn supports_state_version(saved: &str, current: &str) -> bool {
+    saved == current || matches!((saved, current), ("1.0.0", "1.0.1"))
+}
+
 /// everything but memory, as it is written.
 #[derive(Serialize)]
 struct SavedRef<'a> {
@@ -161,7 +168,7 @@ impl System {
         }
         let length = reader.u32()? as usize;
         let version = String::from_utf8_lossy(reader.take(length)?).into_owned();
-        if version != VERSION {
+        if !supports_state_version(&version, VERSION) {
             return Err(format!("it was saved by Zakuro {version}, and this is {VERSION}"));
         }
         if reader.u64()? != self.kernel.program_id {
@@ -350,5 +357,19 @@ mod tests {
         assert!(system.load_state(&state).is_err());
         assert!(system.load_state(b"nothing").is_err());
         assert_eq!(system.cpu.regs[0], 5);
+    }
+}
+
+
+#[cfg(test)]
+mod version_tests {
+    use super::supports_state_version;
+
+    #[test]
+    fn one_point_one_accepts_compatible_one_point_zero_states() {
+        assert!(supports_state_version("1.0.0", "1.0.1"));
+        assert!(supports_state_version("1.0.1", "1.0.1"));
+        assert!(!supports_state_version("1.0.0", "1.1.0"));
+        assert!(!supports_state_version("1.0.2", "1.0.1"));
     }
 }

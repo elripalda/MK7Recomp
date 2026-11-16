@@ -232,7 +232,7 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
     put_u32(&mut header, 0x08, PLUGIN_HEAP_ADDRESS);
     put_u32(&mut header, 0x0C, heap_size);
     put_u32(&mut header, 0x10, exe_size as u32);
-    put_u32(&mut header, 0x14, u32::from(is_default));
+    put_u32(&mut header, 0x14, is_default as u32);
     put_u32(&mut header, 0x18, PLUGIN_HEADER_ADDRESS - 4);
     put_u32(&mut header, 0x1C, PLUGIN_HEADER_ADDRESS - 8);
     for (index, value) in system.services.plgldr.config.iter().enumerate() {
@@ -258,7 +258,7 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
         plugin.executable_checksum,
         PLUGIN_HEADER_ADDRESS - 0xC,
         PLUGIN_HEADER_ADDRESS + PLUGIN_HEADER_SIZE,
-        u32::from(system.services.plgldr.no_flash),
+        system.services.plgldr.no_flash as u32,
         load_func,
     );
     if !system.memory.write_physical(block.addr + boot_offset, &boot) {

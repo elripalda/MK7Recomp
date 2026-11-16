@@ -152,8 +152,12 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
         return Err(LoadError::WrongTitle);
     }
     if !plugin.flags.allow_homebrew_load {
-        let first = system.memory.read32(game_entry);
-        let second = system.memory.read32(game_entry + 32);
+        let mut first_bytes = [0u8; 4];
+        let mut second_bytes = [0u8; 4];
+        system.memory.read_bytes(game_entry, &mut first_bytes);
+        system.memory.read_bytes(game_entry + 32, &mut second_bytes);
+        let first = u32::from_le_bytes(first_bytes);
+        let second = u32::from_le_bytes(second_bytes);
         if first == 0xEA00_0006 && second == 0xE1A0_400E {
             return Err(LoadError::HomebrewExecutable);
         }

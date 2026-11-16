@@ -8,10 +8,16 @@ use crate::recompile::Wanted;
 /// file endings of games Zakuro opens.
 const GAME_FILES: [&str; 4] = ["3ds", "cci", "cxi", "cia"];
 
-/// Retail base-game IDs for Angry Birds Trilogy (USA and Europe).
-const SUPPORTED_GAME_IDS: [u64; 2] = [0x0004_0000_000A_E200, 0x0004_0000_000A_F400];
+/// Retail base-game IDs for Mario Kart 7 (Japan, Europe, USA, Korea and Taiwan).
+const SUPPORTED_GAME_IDS: [u64; 5] = [
+    0x0004_0000_0003_0600,
+    0x0004_0000_0003_0700,
+    0x0004_0000_0003_0800,
+    0x0004_0000_0003_0A00,
+    0x0004_0000_0008_B400,
+];
 
-/// Whether a file is one of the supported Angry Birds Trilogy base games.
+/// Whether a file is one of the supported Mario Kart 7 base games.
 pub fn supports_game(program_id: u64) -> bool {
     SUPPORTED_GAME_IDS.contains(&program_id)
 }
@@ -255,7 +261,7 @@ fn addon(path: &Path) -> Option<Result<Addon, String>> {
         return None;
     }
     if cia.contents.iter().any(|content| content.offset.is_some() && content.encrypted()) {
-        return Some(Err("Encrypted, this build needs a decrypted Angry Birds Trilogy dump".to_owned()));
+        return Some(Err("Encrypted, this build needs a decrypted Mario Kart 7 dump".to_owned()));
     }
     Some(Ok(Addon { path: path.to_owned(), title_id: cia.title_id, version: cia.version }))
 }
@@ -265,7 +271,7 @@ fn addon(path: &Path) -> Option<Result<Addon, String>> {
 fn read_or_list_unreadable(path: &Path, data_dir: Option<&Path>) -> Game {
     std::panic::catch_unwind(|| read_game(path, data_dir)).unwrap_or_else(|_| {
         log::error!("reading {} failed", path.display());
-        unplayable(path, "Angry Birds Trilogy couldn't read this file, please report it".to_owned())
+        unplayable(path, "Mario Kart 7 couldn't read this file, please report it".to_owned())
     })
 }
 
@@ -324,14 +330,14 @@ fn read_game(path: &Path, data_dir: Option<&Path>) -> Game {
 fn problem(error: &zakuro_fs::FsError) -> String {
     use zakuro_fs::FsError;
     match error {
-        FsError::Encrypted(_) | FsError::EncryptedCia => "Encrypted, this build needs a decrypted Angry Birds Trilogy dump".to_owned(),
+        FsError::Encrypted(_) | FsError::EncryptedCia => "Encrypted, this build needs a decrypted Mario Kart 7 dump".to_owned(),
         FsError::UnreadableRomFs(_) => "Partly encrypted or damaged, it needs dumping again".to_owned(),
         FsError::NotAGame(what) => {
             let mut what = what.to_string();
             if let Some(first) = what.get_mut(..1) {
                 first.make_ascii_uppercase();
             }
-            format!("{what} cannot be opened by the Angry Birds Trilogy build")
+            format!("{what} cannot be opened by the Mario Kart 7 build")
         }
         _ => format!("Can't be read, {error}"),
     }
@@ -415,22 +421,28 @@ mod tests {
 
     #[test]
     fn files_that_cant_be_played_say_why() {
-        assert_eq!(problem(&zakuro_fs::FsError::EncryptedCia), "Encrypted, this build needs a decrypted Angry Birds Trilogy dump");
+        assert_eq!(problem(&zakuro_fs::FsError::EncryptedCia), "Encrypted, this build needs a decrypted Mario Kart 7 dump");
         assert_eq!(
             problem(&zakuro_fs::FsError::NotAGame("an update")),
-            "An update cannot be opened by the Angry Birds Trilogy build"
+            "An update cannot be opened by the Mario Kart 7 build"
         );
     }
 
     #[test]
-    fn only_angry_birds_trilogy_retail_ids_are_supported() {
-        let usa = 0x0004_0000_000A_E200;
-        let europe = 0x0004_0000_000A_F400;
-        assert!(supports_game(usa));
-        assert!(supports_game(europe));
+    fn only_mario_kart_7_retail_ids_are_supported() {
+        let supported = [
+            0x0004_0000_0003_0600, // Japan
+            0x0004_0000_0003_0700, // Europe
+            0x0004_0000_0003_0800, // USA
+            0x0004_0000_0003_0A00, // Korea
+            0x0004_0000_0008_B400, // Taiwan
+        ];
+        for program_id in supported {
+            assert!(supports_game(program_id), "expected {program_id:016X} to be supported");
+        }
         assert!(!supports_game(0x0004_0000_0005_5E00)); // Pokémon Y
-        assert!(!supports_game(0x0004_000E_000A_E200)); // update, not base game
-        assert!(belongs_to_supported_game(0x0004_000E_000A_E200)); // USA update
+        assert!(!supports_game(0x0004_000E_0003_0800)); // update, not base game
+        assert!(belongs_to_supported_game(0x0004_000E_0003_0800)); // USA update
         assert!(!belongs_to_supported_game(0x0004_000E_0005_5E00));
     }
 
@@ -475,7 +487,7 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("zakuro-library-addons-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&folder);
         std::fs::create_dir_all(&folder).unwrap();
-        let game = 0x0004_0000_000A_E200u64;
+        let game = 0x0004_0000_0003_0800u64;
         let update = |version: u16| cia(game | 0x000E_0000_0000, version, &[(0, Some(&ncch(game | 0x000E_0000_0000, Some(&[2; 8]), &[])))]);
         std::fs::write(folder.join("game.cxi"), ncch(game, Some(&[1; 8]), &[])).unwrap();
         std::fs::write(folder.join("old.cia"), update(0x0400)).unwrap();
@@ -485,7 +497,7 @@ mod tests {
         let orphan = 0x0004_000E_0000_0001u64;
         std::fs::write(folder.join("orphan.cia"), cia(orphan, 1, &[(0, Some(&ncch(orphan, Some(&[3; 8]), &[])))])).unwrap();
         // Download Play children, the game's and one of a game not there
-        let child = 0x0004_0001_000A_E200u64;
+        let child = 0x0004_0001_0003_0800u64;
         std::fs::write(folder.join("child.cia"), cia(child, 0, &[(0, Some(&ncch(child, Some(&[4; 8]), &[])))])).unwrap();
         let stray = 0x0004_0001_0000_0002u64;
         std::fs::write(folder.join("stray.cia"), cia(stray, 0, &[(0, Some(&ncch(stray, Some(&[5; 8]), &[])))])).unwrap();

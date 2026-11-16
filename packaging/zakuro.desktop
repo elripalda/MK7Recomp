@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Angry Birds Trilogy
-Comment=Angry Birds Trilogy for desktop
-Exec=angry-birds-trilogy %f
+Name=Mario Kart 7 Recompiled
+Comment=Mario Kart 7 Recompiled for desktop
+Exec=mario-kart-7 %f
 Icon=zakuro
 Terminal=false
 Categories=Game;Emulator;

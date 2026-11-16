@@ -3,13 +3,13 @@ name = "zakuro"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Angry Birds Trilogy desktop runtime and launcher"
+description = "Mario Kart 7 desktop runtime and launcher"
 
 [lib]
 path = "src/lib.rs"
 
 [[bin]]
-name = "angry-birds-trilogy"
+name = "mario-kart-7"
 path = "src/main.rs"
 
 [dependencies]

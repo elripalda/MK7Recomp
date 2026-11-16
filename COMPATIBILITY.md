@@ -1,10 +1,13 @@
 # Compatibility
 
-This fork intentionally supports only **Angry Birds Trilogy for Nintendo 3DS**.
+This fork intentionally supports only **Mario Kart 7 for Nintendo 3DS**.
 
 | Game | Region | Title ID | Support |
 |---|---|---|---|
-| Angry Birds Trilogy | USA | 00040000000AE200 | Supported |
-| Angry Birds Trilogy | Europe | 00040000000AF400 | Supported |
+| Mario Kart 7 | Japan | 0004000000030600 | Supported |
+| Mario Kart 7 | Europe | 0004000000030700 | Supported |
+| Mario Kart 7 | USA | 0004000000030800 | Supported |
+| Mario Kart 7 | Korea | 0004000000030A00 | Supported |
+| Mario Kart 7 | Taiwan | 000400000008B400 | Supported |
 
 All other Nintendo 3DS titles are filtered out of the library and rejected when started directly. Decrypted game data is required. The title-specific recompiled output is generated locally and is not distributed with the project.

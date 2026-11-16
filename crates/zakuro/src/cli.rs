@@ -31,11 +31,11 @@ pub struct Options {
 }
 
 const USAGE: &str = "\
-angry-birds-trilogy - Angry Birds Trilogy for desktop
+mario-kart-7 - Mario Kart 7 for desktop
 
-usage: angry-birds-trilogy [rom.3ds|.cci|.cxi|.cia] [options]
+usage: mario-kart-7 [rom.3ds|.cci|.cxi|.cia] [options]
 
-This build only opens the USA and Europe releases of Angry Birds Trilogy.
+This build only opens the Japan, Europe, USA, Korea and Taiwan releases of Mario Kart 7.
 Without a game it opens a library folder and lists matching game dumps only.
 The game dump must be decrypted. Recompile it locally from the library.
 
@@ -51,9 +51,9 @@ options:
   --interpreter                    interpret everything
   --mute                           play no sound
   --data <dir>                     where settings and saves live (default:
-                                   ~/.local/share/angry-birds-trilogy,
-                                   ~/Library/Application Support/angry-birds-trilogy
-                                   or %APPDATA%\\angry-birds-trilogy)
+                                   ~/.local/share/mario-kart-7,
+                                   ~/Library/Application Support/mario-kart-7
+                                   or %APPDATA%\\mario-kart-7)
   -h, --help                       show this message
 ";
 

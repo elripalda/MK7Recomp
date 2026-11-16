@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>Angry Birds Trilogy</string>
+  <string>Mario Kart 7 Recompiled</string>
   <key>CFBundleDisplayName</key>
-  <string>Zakuro</string>
+  <string>Mario Kart 7 Recompiled</string>
   <key>CFBundleIdentifier</key>
-  <string>io.github.nvd123-yt.angrybirdstrilogy</string>
+  <string>io.github.nvd123-yt.mariokart7recompiled</string>
   <key>CFBundleExecutable</key>
-  <string>angry-birds-trilogy</string>
+  <string>mario-kart-7</string>
   <key>CFBundleIconFile</key>
   <string>zakuro</string>
   <key>CFBundlePackageType</key>

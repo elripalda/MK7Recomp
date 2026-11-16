@@ -275,7 +275,194 @@ impl CsndState {
             dest[0] = dest[0].saturating_add(source[0]);
             dest[1] = dest[1].saturating_add(source[1]);
         }
-    }fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 6]) {
+    
+}
+
+pub fn advance(system: &mut System) {
+    let dsp_running = system.services.dsp.running;
+    let (csnd, dsp) = (&mut system.services.csnd, &mut system.services.dsp);
+    let active = csnd.clients.values().any(|client| client.shared_block.is_some())
+        || csnd.channels.iter().any(|channel| channel.cnt & 0x8000 != 0);
+    if !dsp_running && active {
+        dsp.output.extend(std::iter::repeat_n([0, 0], 160));
+    }
+    csnd.render_frame(&mut system.memory, &mut dsp.output);
+    if dsp.output.len() > 32_768 {
+        let excess = dsp.output.len() - 32_768;
+        dsp.output.drain(..excess);
+    }
+}
+
+pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header, session: u32) -> bool {
+    let id = header.command_id();
+    match id {
+        0x0001 => initialize(system, buffer, id, session),
+        0x0002 => { shutdown(system, session); buffer.reply(&mut system.memory, id, &[]); true }
+        0x0003 => execute_commands(system, buffer, id, session),
+        0x0005 => {
+            system.services.csnd.client(session).channel_mask = CLIENT_CHANNELS;
+            buffer.reply(&mut system.memory, id, &[CLIENT_CHANNELS]);
+            true
+        }
+        0x0006 => {
+            system.services.csnd.client(session).channel_mask = 0;
+            buffer.reply(&mut system.memory, id, &[]);
+            true
+        }
+        0x0007 => {
+            let unit = system.services.csnd.capture_in_use.iter().position(|used| !used);
+            if let Some(unit) = unit {
+                system.services.csnd.capture_in_use[unit] = true;
+                system.services.csnd.client(session).capture_mask |= 1 << unit;
+                let client = system.services.csnd.client(session).clone();
+                write_shared_u32(system, &client, client.capture_offset + unit as u32 * CAPTURE_STATE_SIZE + 4, 0);
+                buffer.reply(&mut system.memory, id, &[unit as u32]);
+            } else {
+                buffer.reply_error(&mut system.memory, id, INVALID_STATE);
+            }
+            true
+        }
+        0x0008 => {
+            let unit = buffer.get(&mut system.memory, 1) as usize;
+            if unit >= CAPTURES || system.services.csnd.client(session).capture_mask & (1 << unit) == 0 {
+                buffer.reply_error(&mut system.memory, id, INVALID_STATE);
+            } else {
+                system.services.csnd.client(session).capture_mask &= !(1 << unit);
+                system.services.csnd.capture_in_use[unit] = false;
+                buffer.reply(&mut system.memory, id, &[]);
+            }
+            true
+        }
+        0x0009..=0x000B => {
+            let address = buffer.get(&mut system.memory, 1);
+            let size = buffer.get(&mut system.memory, 2);
+            let end = address.checked_add(size);
+            let valid = end.is_some_and(|end| {
+                ((0x1400_0000..=0x1C00_0000).contains(&address) && end <= 0x1C00_0000)
+                    || ((0x3000_0000..=0x4000_0000).contains(&address) && end <= 0x4000_0000)
+            });
+            if valid { buffer.reply(&mut system.memory, id, &[]); }
+            else { buffer.reply_error(&mut system.memory, id, INVALID_ADDRESS); }
+            true
+        }
+        0x000C => {
+            for index in 0..CHANNELS {
+                system.services.csnd.stop(index);
+                let ch = &mut system.services.csnd.channels[index];
+                ch.volume_left = 0;
+                ch.volume_right = 0;
+            }
+            buffer.reply(&mut system.memory, id, &[]);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn initialize(system: &mut System, buffer: &CommandBuffer, id: u16, session: u32) -> bool {
+    let requested = buffer.get(&mut system.memory, 1).max(0x1000);
+    let size = requested.saturating_add(0xFFF) & !0xFFF;
+    if system.services.csnd.client(session).shared_block.is_some() {
+        buffer.reply_error(&mut system.memory, id, ALREADY_INITIALIZED);
+        return true;
+    }
+    let Some(block) = system.memory.phys.allocate(MemoryRegion::Base, size) else {
+        buffer.reply_error(&mut system.memory, id, zakuro_common::result::errors::OUT_OF_MEMORY.0);
+        return true;
+    };
+    if !system.memory.zero_physical(block.addr, block.size) {
+        system.memory.phys.free(block);
+        buffer.reply_error(&mut system.memory, id, zakuro_common::result::errors::OUT_OF_MEMORY.0);
+        return true;
+    }
+    let master_offset = buffer.get(&mut system.memory, 2);
+    let channel_offset = buffer.get(&mut system.memory, 3);
+    let capture_offset = buffer.get(&mut system.memory, 4);
+    let direct_offset = buffer.get(&mut system.memory, 5);
+
+    let mutex_object = system.kernel.objects.insert(KObject::Mutex(sync::Mutex::new("CSND")));
+    let mutex_handle = system.kernel.handles.create(&mut system.kernel.objects, mutex_object, "csnd:SND mutex");
+    system.kernel.objects.add_ref(mutex_object);
+    let shared_object = system.kernel.objects.insert(KObject::SharedMemory(SharedMemory {
+        name: "CSND".into(), address: 0, size, paddr: block.addr, mapped_at: None,
+    }));
+    let shared_handle = system.kernel.handles.create(&mut system.kernel.objects, shared_object, "csnd:SND shared memory");
+    system.kernel.objects.add_ref(shared_object);
+    {
+        let client = system.services.csnd.client(session);
+        client.shared_block = Some(block);
+        client.shared_object = Some(shared_object);
+        client.mutex_object = Some(mutex_object);
+        client.shared_handle = shared_handle;
+        client.mutex_handle = mutex_handle;
+        client.master_offset = master_offset;
+        client.channel_offset = channel_offset;
+        client.capture_offset = capture_offset;
+        client.direct_offset = direct_offset;
+    }
+    buffer.set(&mut system.memory, 0, Header::new(id, 1, 3).0);
+    buffer.set(&mut system.memory, 1, 0);
+    buffer.set(&mut system.memory, 2, crate::kernel::ipc::Descriptor::move_handles(2));
+    buffer.set(&mut system.memory, 3, mutex_handle);
+    buffer.set(&mut system.memory, 4, shared_handle);
+    true
+}
+
+fn shutdown(system: &mut System, session: u32) {
+    let Some(mut client) = system.services.csnd.clients.remove(&session) else { return; };
+    if let Some(object) = client.shared_object {
+        if let Some(KObject::SharedMemory(shared)) = system.kernel.objects.get(object) {
+            if let Some(address) = shared.mapped_at { system.memory.unmap(address, shared.size); }
+        }
+        system.kernel.handles.close(&mut system.kernel.objects, client.shared_handle);
+        system.kernel.objects.release(object);
+    }
+    if let Some(object) = client.mutex_object {
+        system.kernel.handles.close(&mut system.kernel.objects, client.mutex_handle);
+        system.kernel.objects.release(object);
+    }
+    if let Some(block) = client.shared_block.take() { system.memory.phys.free(block); }
+    for unit in 0..CAPTURES {
+        if client.capture_mask & (1 << unit) != 0 {
+            system.services.csnd.capture_in_use[unit] = false;
+            system.services.csnd.captures[unit] = CaptureUnit::default();
+        }
+    }
+}
+
+fn execute_commands(system: &mut System, buffer: &CommandBuffer, id: u16, session: u32) -> bool {
+    let first = buffer.get(&mut system.memory, 1);
+    let client = system.services.csnd.client(session).clone();
+    let Some(block) = client.shared_block else {
+        buffer.reply_error(&mut system.memory, id, INVALID_STATE);
+        return true;
+    };
+    let mut offset = first;
+    let mut executed = 0u32;
+    let limit = block.size / COMMAND_SIZE;
+    while offset != LIST_END as u32 && executed < limit {
+        if offset.checked_add(COMMAND_SIZE).is_none_or(|end| end > block.size) { break; }
+        let mut command = [0u8; COMMAND_SIZE as usize];
+        if !system.memory.read_physical(block.addr + offset, &mut command) { break; }
+        let next = u16::from_le_bytes([command[0], command[1]]);
+        let command_id = u16::from_le_bytes([command[2], command[3]]);
+        let mut params = [0u32; 6];
+        for (index, param) in params.iter_mut().enumerate() {
+            let at = 8 + index * 4;
+            *param = u32::from_le_bytes(command[at..at + 4].try_into().unwrap());
+        }
+        execute_command(system, &client, command_id, params);
+        offset = next as u32;
+        executed += 1;
+    }
+    if first.checked_add(COMMAND_SIZE).is_some_and(|end| end <= block.size) {
+        let _ = system.memory.write_physical(block.addr + first + 4, &[1]);
+    }
+    buffer.reply(&mut system.memory, id, &[]);
+    true
+}
+
+fn execute_command(system: &mut System, client: &Client, command: u16, p: [u32; 6]) {
     let index = (p[0] & 0x1F) as usize;
     if command < 0x100 && client.channel_mask & (1 << index) == 0 { return; }
     if (0x100..0x200).contains(&command) && index >= CAPTURES { return; }
@@ -373,6 +560,45 @@ impl CsndState {
 }
 
 
+
+
+fn write_shared(system: &mut System, client: &Client, offset: u32, bytes: &[u8]) {
+    let Some(block) = client.shared_block else { return; };
+    if offset.checked_add(bytes.len() as u32).is_some_and(|end| end <= block.size) {
+        let _ = system.memory.write_physical(block.addr + offset, bytes);
+    }
+}
+
+fn write_shared_u32(system: &mut System, client: &Client, offset: u32, value: u32) {
+    write_shared(system, client, offset, &value.to_le_bytes());
+}
+
+fn channel_position(mask: u32, channel: usize) -> u32 {
+    (0..channel).filter(|index| mask & (1 << index) != 0).count() as u32
+}
+
+fn write_client_state(system: &mut System, client: &Client) {
+    let channel_mask = system.services.csnd.channel_mask_register & client.channel_mask;
+    let capture_mask = (system.services.csnd.capture_mask_register & client.capture_mask) as u32;
+    write_shared_u32(system, client, client.master_offset, channel_mask);
+    write_shared_u32(system, client, client.master_offset + 4, capture_mask);
+    let mut position = 0u32;
+    for index in 0..CHANNELS {
+        if client.channel_mask & (1 << index) == 0 { continue; }
+        let ch = system.services.csnd.channels[index];
+        let at = client.channel_offset + position * CHANNEL_STATE_SIZE;
+        write_shared(system, client, at, &[u8::from(ch.cnt & 0xC000 == 0xC000)]);
+        write_shared(system, client, at + 4, &(ch.predictor as u16).to_le_bytes());
+        write_shared(system, client, at + 6, &[ch.step_index]);
+        write_shared_u32(system, client, at + 8, 0);
+        position += 1;
+    }
+    for unit in 0..CAPTURES {
+        if client.capture_mask & (1 << unit) == 0 { continue; }
+        write_shared(system, client, client.capture_offset + unit as u32 * CAPTURE_STATE_SIZE, &[0]);
+        write_shared_u32(system, client, client.capture_offset + unit as u32 * CAPTURE_STATE_SIZE + 4, 0);
+    }
+}
 
 #[cfg(test)]
 mod tests {

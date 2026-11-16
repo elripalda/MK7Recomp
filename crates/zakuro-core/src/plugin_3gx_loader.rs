@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 
 use zakuro_common::memory_map::{PAGE_SIZE, FCRAM_PADDR};
 use zakuro_fs::Title;
-use zakuro_cpu::Bus;
 
 use crate::memory::{MemoryRegion, MemoryState, Permission};
 use crate::plugin_3gx::{Plugin3gx, PLUGIN_HEADER_ADDRESS, PLUGIN_HEAP_ADDRESS};

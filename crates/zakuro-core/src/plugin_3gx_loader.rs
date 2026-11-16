@@ -76,6 +76,28 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
     let data_dir = system.config.data_dir.as_ref()?;
     let root = data_dir.join("plugins");
     let title_dir = root.join(format!("{:016X}", title.program_id()));
+    if system.services.plgldr.use_user_load_parameters
+        && (system.services.plgldr.low_title_id == 0
+            || system.services.plgldr.low_title_id == title.program_id() as u32)
+        && !system.services.plgldr.requested_path.is_empty()
+    {
+        let requested = system.services.plgldr.requested_path.trim_start_matches('/');
+        let mut paths = vec![data_dir.join(requested), root.join(requested)];
+        if let Some(name) = Path::new(requested).file_name() {
+            paths.push(root.join(name));
+        }
+        for path in paths {
+            if path.is_file() {
+                match load_path(system, title, game_entry, &path, false) {
+                    Ok(()) => {
+                        system.services.plgldr.use_user_load_parameters = false;
+                        return Some(BOOTLOADER_ADDRESS);
+                    }
+                    Err(error) => log::warn!("configured 3GX plugin {} was not loaded: {error}", path.display()),
+                }
+            }
+        }
+    }
     let mut candidates: Vec<PathBuf> = std::fs::read_dir(&title_dir)
         .ok()
         .into_iter()
@@ -158,7 +180,7 @@ fn load_path(system: &mut System, title: &Title, game_entry: u32, path: &Path, i
     system.memory.map(PLUGIN_HEAP_ADDRESS, block.addr + heap_offset, heap_size, rwx, state);
 
     let mut header = [0u8; PLUGIN_HEADER_SIZE as usize];
-    put_u32(&mut header, 0x00, u32::from_le_bytes(*b"3GX$"));
+    put_u32(&mut header, 0x00, 0);
     put_u32(&mut header, 0x04, plugin.version);
     put_u32(&mut header, 0x08, PLUGIN_HEAP_ADDRESS);
     put_u32(&mut header, 0x0C, heap_size);

@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 
 use zakuro_common::memory_map::{PAGE_SIZE, FCRAM_PADDR};
 use zakuro_fs::Title;
+use zakuro_cpu::Bus;
 
-use crate::memory::{MemoryRegion, MemoryState, Permission, PhysicalBlock};
-use crate::plugin_3gx::{Plugin3gx, Compatibility, PLUGIN_HEADER_ADDRESS, PLUGIN_HEAP_ADDRESS};
+use crate::memory::{MemoryRegion, MemoryState, Permission};
+use crate::plugin_3gx::{Plugin3gx, PLUGIN_HEADER_ADDRESS, PLUGIN_HEAP_ADDRESS};
 use crate::System;
 
 const BOOTLOADER_ADDRESS: u32 = PLUGIN_HEADER_ADDRESS - 0x1000;

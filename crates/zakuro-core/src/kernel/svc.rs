@@ -906,10 +906,18 @@ fn wait_synchronization_n(system: &mut System) {
 
 fn close_handle(system: &mut System) {
     let handle = system.cpu.regs[0];
-    system
-        .kernel
-        .handles
-        .close(&mut system.kernel.objects, handle);
+    let csnd_session = system.kernel.resolve(handle).and_then(|object| {
+        let last_handle = system.kernel.objects.refcount(object) == 1;
+        match system.kernel.objects.get(object) {
+            Some(KObject::ClientSession(session))
+                if last_handle && session.service == "csnd:SND" => Some(session.subhandle),
+            _ => None,
+        }
+    });
+    system.kernel.handles.close(&mut system.kernel.objects, handle);
+    if let Some(session) = csnd_session {
+        crate::services::csnd::close_session(system, session);
+    }
     system.cpu.regs[0] = 0;
 }
 

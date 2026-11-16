@@ -418,6 +418,14 @@ pub fn close_session(system: &mut System, session: u32) {
     shutdown(system, session);
 }
 
+/// Releases every CSND client when the emulated process exits.
+pub fn shutdown_all(system: &mut System) {
+    let sessions: Vec<u32> = system.services.csnd.clients.keys().copied().collect();
+    for session in sessions {
+        shutdown(system, session);
+    }
+}
+
 fn execute_commands(system: &mut System, buffer: &CommandBuffer, id: u16, session: u32) -> bool {
     let first = buffer.get(&mut system.memory, 1);
     let client = system.services.csnd.client(session).clone();
@@ -443,7 +451,9 @@ fn execute_commands(system: &mut System, buffer: &CommandBuffer, id: u16, sessio
         offset = next as u32;
         executed += 1;
     }
-    let _ = system.memory.write_physical(block.addr + first + 4, &[1]);
+    if first.checked_add(COMMAND_SIZE).is_some_and(|end| end <= block.size) {
+        let _ = system.memory.write_physical(block.addr + first + 4, &[1]);
+    }
     buffer.reply(&mut system.memory, id, &[]);
     true
 }

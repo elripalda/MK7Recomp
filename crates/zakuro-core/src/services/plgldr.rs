@@ -28,6 +28,10 @@ pub struct PluginLoaderState {
     pub memory_strategy: u8,
     pub low_title_id: u32,
     pub config: [u32; 32],
+    /// The game's two original instructions, restored when its process exits.
+    pub original_game_entry: Option<[u32; 2]>,
+    /// Original CONFIG_MEM app_mem_alloc value, restored on plugin unload.
+    pub previous_app_memory_size: Option<u32>,
 }
 
 impl Default for PluginLoaderState {
@@ -50,6 +54,8 @@ impl Default for PluginLoaderState {
             memory_strategy: 0,
             low_title_id: 0,
             config: [0; 32],
+            original_game_entry: None,
+            previous_app_memory_size: None,
         }
     }
 }

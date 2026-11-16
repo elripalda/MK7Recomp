@@ -88,7 +88,9 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
         return None;
     }
     let data_dir = system.config.data_dir.as_ref()?;
-    let sdmc_root = system.services.fs.user_dir.clone();
+    // FS:USER maps ARCHIVE_SDMC to user_dir/sdmc. That directory is
+    // the guest-visible SD root used by Luma and CTGP-7.
+    let sdmc_root = system.services.fs.user_dir.join("sdmc");
     let roots = plugin_roots(&sdmc_root, data_dir);
 
     if system.services.plgldr.use_user_load_parameters
@@ -124,7 +126,7 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
     // directly so the recompiled title can launch without the separate
     // homebrew launcher process.
     let ctgp_plugin_paths = [
-        system.services.fs.user_dir.join("CTGP-7").join("resources").join("CTGP-7.3gx"),
+        sdmc_root.join("CTGP-7").join("resources").join("CTGP-7.3gx"),
         data_dir.join("CTGP-7").join("resources").join("CTGP-7.3gx"),
     ];
     for ctgp_plugin in ctgp_plugin_paths {
@@ -456,6 +458,17 @@ pub fn unload(system: &mut System) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn luma_plugin_roots_are_relative_to_the_guest_sd_root() {
+        let sdmc = Path::new("/data/user/sdmc");
+        let data = Path::new("/data");
+        let roots = plugin_roots(sdmc, data);
+        assert_eq!(roots[0], Path::new("/data/user/sdmc/luma/plugins"));
+        assert_eq!(roots[1], Path::new("/data/user/sdmc/plugins"));
+        assert_eq!(roots[2], Path::new("/data/luma/plugins"));
+        assert_eq!(roots[3], Path::new("/data/plugins"));
+    }
 
     #[test]
     fn bootloader_load_arguments_overwrite_the_marker_word() {

@@ -14,6 +14,8 @@ pub mod loader;
 pub mod memory;
 pub mod microphone;
 pub mod mods;
+pub mod plugin_3gx;
+pub mod plugin_3gx_loader;
 pub mod replay;
 pub mod room;
 pub mod recompiled;
@@ -1093,6 +1095,7 @@ impl System {
             services::dsp::advance(self);
             services::dsp::signal_semaphore(self);
         }
+        services::csnd::advance(self);
         // the devices that report at a rate a title sets, which this is
         // fine enough for
         services::ir_rst::tick(self);

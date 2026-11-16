@@ -3,6 +3,7 @@
 pub mod apt;
 pub mod boss;
 pub mod cam;
+pub mod csnd;
 pub mod cecd;
 pub mod err;
 pub mod cfg;
@@ -21,6 +22,7 @@ pub mod ir_rst;
 pub mod keyboard;
 pub mod ldr_ro;
 pub mod mic;
+pub mod plgldr;
 pub mod mii_selector;
 pub mod misc;
 pub mod nfc;
@@ -84,6 +86,12 @@ pub struct ServiceState {
     /// commands we logged as unimplemented, so the log stays readable and the
     /// diagnostics overlay can show what a title is actually asking for.
     pub unimplemented: BTreeMap<(String, u16), u32>,
+    // Keep new service state at the end: postcard serializes structs in field
+    // order, so older save-state sequences can omit these trailing fields.
+    #[serde(default)]
+    pub csnd: csnd::CsndState,
+    #[serde(default)]
+    pub plgldr: plgldr::PluginLoaderState,
 }
 
 /// entry point from svcSendSyncRequest.
@@ -111,6 +119,8 @@ pub fn handle_request(system: &mut System, target: Target) {
         "cfg:u" | "cfg:s" | "cfg:i" => cfg::handle(system, &buffer, header),
         "err:f" => err::handle(system, &buffer, header),
         "dsp::DSP" => dsp::handle(system, &buffer, header),
+        "plg:ldr" => plgldr::handle(system, &buffer, header),
+        "csnd:SND" => csnd::handle(system, &buffer, header, match &target { Target::Service { subhandle, .. } => *subhandle, _ => 0 }),
         "ldr:ro" => ldr_ro::handle(system, &buffer, header),
         "ir:USER" => ir::handle(system, &buffer, header),
         "ir:rst" => ir_rst::handle(system, &buffer, header),

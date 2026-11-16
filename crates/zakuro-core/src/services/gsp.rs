@@ -623,10 +623,25 @@ fn execute_command(system: &mut System, command: GxCommand) {
 /// linear heap, to the physical one the GPU takes, as the GSP does. the
 /// linear heap at 0x30000000 is above where FCRAM starts, so the GPU can't
 /// tell one from the other itself. anything else goes as it is.
+/// 3GX plugins reserve this range for a framebuffer in their mapped heap.
+/// Unlike the linear heap, the backing physical address is chosen at load time.
+const PLUGIN_FRAMEBUFFER_VADDR: u32 = 0x0600_0000;
+const PLUGIN_FRAMEBUFFER_SIZE: u32 = 0x000A_9000;
+
+/// Converts an address a title hands the GSP to a physical address.
 pub fn virtual_to_physical(system: &System, vaddr: u32) -> u32 {
     use zakuro_common::memory_map::*;
     let linear = system.kernel.linear_base;
     let size = if linear == LINEAR_HEAP_VADDR_NEW3DS { LINEAR_HEAP_SIZE_NEW3DS } else { LINEAR_HEAP_SIZE_OLD3DS };
+
+    if (PLUGIN_FRAMEBUFFER_VADDR..PLUGIN_FRAMEBUFFER_VADDR + PLUGIN_FRAMEBUFFER_SIZE).contains(&vaddr) {
+        if let Some(mapping) = system.memory.mapping_at(PLUGIN_FRAMEBUFFER_VADDR) {
+            let offset = vaddr - mapping.base;
+            if offset < mapping.size {
+                return mapping.paddr + offset;
+            }
+        }
+    }
     if (VRAM_VADDR..VRAM_VADDR + VRAM_SIZE).contains(&vaddr) {
         VRAM_PADDR + (vaddr - VRAM_VADDR)
     } else if vaddr >= linear && vaddr - linear < size {
@@ -639,6 +654,12 @@ pub fn virtual_to_physical(system: &System, vaddr: u32) -> u32 {
 /// converts a physical address in a GX command to the linear-heap virtual
 /// address it corresponds to, which is where our memory actually is.
 pub fn physical_to_virtual(system: &System, paddr: u32) -> u32 {
+    if let Some(mapping) = system.memory.mapping_at(PLUGIN_FRAMEBUFFER_VADDR) {
+        let framebuffer_end = mapping.paddr.saturating_add(PLUGIN_FRAMEBUFFER_SIZE);
+        if (mapping.paddr..framebuffer_end).contains(&paddr) {
+            return PLUGIN_FRAMEBUFFER_VADDR + (paddr - mapping.paddr);
+        }
+    }
     if paddr >= FCRAM_PADDR {
         system.kernel.linear_base + (paddr - FCRAM_PADDR)
     } else if (0x1800_0000..0x1860_0000).contains(&paddr) {
@@ -656,7 +677,7 @@ pub const fn page_align(size: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{MemoryState, Permission};
+    use crate::memory::{MemoryRegion, MemoryState, Permission};
     use crate::{Config, System};
 
     /// maps the GSP shared memory block and points shared_memory_address
@@ -786,4 +807,23 @@ mod tests {
         assert_eq!(system.gpu.framebuffers[0].address_left(), 0x1234_0000);
         let _ = vaddr;
     }
+    #[test]
+    fn translates_3gx_plugin_framebuffer_in_both_directions() {
+        let mut system = System::new(Config::default());
+        let block = system.memory.phys.allocate(MemoryRegion::Base, 0x1000).unwrap();
+        let heap_paddr = block.addr;
+        system.memory.map(
+            PLUGIN_FRAMEBUFFER_VADDR,
+            heap_paddr,
+            0x1000,
+            Permission::READ | Permission::WRITE | Permission::EXECUTE,
+            MemoryState::Shared,
+        );
+
+        let framebuffer_address = PLUGIN_FRAMEBUFFER_VADDR + 0x234;
+        let physical_address = heap_paddr + 0x234;
+        assert_eq!(virtual_to_physical(&system, framebuffer_address), physical_address);
+        assert_eq!(physical_to_virtual(&system, physical_address), framebuffer_address);
+    }
+
 }

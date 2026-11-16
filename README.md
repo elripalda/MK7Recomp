@@ -17,6 +17,19 @@ This fork is deliberately limited to **Mario Kart 7 for Nintendo 3DS**. Other ga
 
 The application expects a legally obtained, decrypted dump of the game. It does not include the ROM, game code, textures, music, or other game assets.
 
+## Regional update data and CTGP-7
+
+Place an update `.cia` beside its matching base-game dump in the same library folder. The launcher recognizes update title IDs in the `0004000E` namespace by their regional suffix, attaches the update to the matching base game, and selects the highest installed update version. The CTGP-7 v1.2 update title IDs are:
+
+| Region | Mario Kart 7 update title ID | Update version |
+|---|---|---:|
+| Japan | `0004000E00030600` | 3152 |
+| Europe | `0004000E00030700` | 3152 |
+| USA | `0004000E00030800` | 3152 |
+| Korea | `0004000E00030A00` | 3088 |
+
+**CTGP-7 itself is not supported yet.** Its official setup requires a plugin loader that executes Luma3DS `.3gx` ARM plugins, and CTGP-7's launcher/installation flow also relies on 3DS title-install behavior. This fork currently supports filesystem and code-patch mods, but it does not load or execute `.3gx` plugins or install the CTGP-7 application CIA. Having the matching v1.2 update attached is necessary, but not sufficient, for CTGP-7.
+
 ## Playing
 
 1. Download the package for your operating system from [Releases](https://github.com/nvd123-YT/MK7Recomp/releases).

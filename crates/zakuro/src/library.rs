@@ -444,7 +444,15 @@ mod tests {
         }
         assert!(!supports_game(0x0004_0000_0005_5E00)); // Pokémon Y
         assert!(!supports_game(0x0004_000E_0003_0800)); // update, not base game
-        assert!(belongs_to_supported_game(0x0004_000E_0003_0800)); // USA update
+        let ctgp7_updates = [
+            0x0004_000E_0003_0600, // Japan v1.2 update
+            0x0004_000E_0003_0700, // Europe v1.2 update
+            0x0004_000E_0003_0800, // USA v1.2 update
+            0x0004_000E_0003_0A00, // Korea v1.2 update
+        ];
+        for title_id in ctgp7_updates {
+            assert!(belongs_to_supported_game(title_id), "expected update {title_id:016X} to match Mario Kart 7");
+        }
         assert!(!belongs_to_supported_game(0x0004_000E_0005_5E00));
     }
 
@@ -479,6 +487,47 @@ mod tests {
         assert_eq!(pixel(1, 0), [255, 0, 0, 255]);
         assert_eq!(pixel(0, 1), [0, 0, 255, 255]);
         assert_eq!(pixel(8, 0), [0, 255, 0, 255]);
+    }
+
+    /// CTGP-7 requires the separate regional v1.2 update CIA. Its title ID
+    /// uses the update namespace (0004000E) but retains the base game's
+    /// regional suffix, so it must be paired with that game's dump.
+    #[test]
+    fn ctgp7_v12_updates_attach_to_each_supported_region() {
+        use zakuro_fs::testing::{cia, ncch};
+
+        let folder = std::env::temp_dir().join(format!("zakuro-ctgp7-updates-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+
+        let regions = [
+            (0x0004_0000_0003_0600u64, 3152u16), // Japan
+            (0x0004_0000_0003_0700u64, 3152u16), // Europe
+            (0x0004_0000_0003_0800u64, 3152u16), // USA
+            (0x0004_0000_0003_0A00u64, 3088u16), // Korea
+        ];
+
+        for (index, (game_id, update_version)) in regions.into_iter().enumerate() {
+            let update_id = game_id | 0x0000_000E_0000_0000;
+            let game_file = ncch(game_id, Some(&[1; 8]), &[]);
+            let update_content = ncch(update_id, Some(&[2; 8]), &[]);
+            let update_file = cia(update_id, update_version, &[(0, Some(&update_content))]);
+            std::fs::write(folder.join(format!("game-{index}.cxi")), game_file).unwrap();
+            std::fs::write(folder.join(format!("update-{index}.cia")), update_file).unwrap();
+        }
+
+        let (games, children) = scan(&folder, None);
+        assert!(children.is_empty());
+        assert_eq!(games.len(), regions.len(), "one playable base game per CTGP-7 region");
+
+        for (game_id, update_version) in regions {
+            let game = games.iter().find(|entry| entry.program_id == game_id).expect("base game should be in the library");
+            assert_eq!(game.update.as_ref().map(|update| update.version), Some(update_version));
+            let (beside_update, _, _) = addons_beside(&game.path).expect("base game should find adjacent update data");
+            assert_eq!(beside_update.map(|update| update.version), Some(update_version));
+        }
+
+        std::fs::remove_dir_all(folder).unwrap();
     }
 
     /// an update and DLC in the folder go with their game, the newest

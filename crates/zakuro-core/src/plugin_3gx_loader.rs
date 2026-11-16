@@ -111,6 +111,18 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
         }
     }
 
+    // CTGP-7's official launcher stores its 3GX at this path and normally
+    // passes it to plg:ldr through SetLoadSettings. Also check the same path
+    // directly so the recompiled title can launch without the separate
+    // homebrew launcher process.
+    let ctgp_plugin = data_dir.join("CTGP-7").join("resources").join("CTGP-7.3gx");
+    if ctgp_plugin.is_file() {
+        match load_path(system, title, game_entry, &ctgp_plugin, false) {
+            Ok(()) => return Some(BOOTLOADER_ADDRESS),
+            Err(error) => log::warn!("CTGP-7 plugin {} was not loaded: {error}", ctgp_plugin.display()),
+        }
+    }
+
     let title_dir_name = format!("{:016X}", title.program_id());
     let mut candidates = Vec::new();
     for root in &roots {

@@ -677,7 +677,7 @@ pub const fn page_align(size: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{MemoryState, Permission};
+    use crate::memory::{MemoryRegion, MemoryState, Permission};
     use crate::{Config, System};
 
     /// maps the GSP shared memory block and points shared_memory_address

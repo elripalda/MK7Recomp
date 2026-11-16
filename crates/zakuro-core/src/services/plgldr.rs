@@ -168,10 +168,19 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header) -> bo
             let mapped = mapped_buffers(system, buffer, header);
             if let Some((descriptor, pointer, size)) = mapped.first().copied() {
                 let path = if !system.services.plgldr.plugin_path.is_empty() {
-                    std::path::Path::new(&system.services.plgldr.plugin_path)
-                        .strip_prefix(system.config.data_dir.as_deref().unwrap_or_else(|| std::path::Path::new("")))
+                    let plugin_path = std::path::Path::new(&system.services.plgldr.plugin_path);
+                    // The service reports paths relative to SDMC, not to the
+                    // application's host data directory (whose SD root is
+                    // the "user" subdirectory).
+                    plugin_path
+                        .strip_prefix(&system.services.fs.user_dir)
+                        .ok()
+                        .or_else(|| {
+                            system.services.fs.user_dir.parent()
+                                .and_then(|root| plugin_path.strip_prefix(root).ok())
+                        })
                         .map(|p| format!("/{}", p.to_string_lossy().replace('\\', "/")))
-                        .unwrap_or_else(|_| system.services.plgldr.plugin_path.clone())
+                        .unwrap_or_else(|| system.services.plgldr.plugin_path.clone())
                 } else {
                     system.services.plgldr.requested_path.clone()
                 };

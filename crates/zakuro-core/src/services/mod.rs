@@ -68,10 +68,6 @@ impl Target {
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct ServiceState {
     pub srv: srv::SrvState,
-    #[serde(default)]
-    pub csnd: csnd::CsndState,
-    #[serde(default)]
-    pub plgldr: plgldr::PluginLoaderState,
     pub apt: apt::AptState,
     pub gsp: gsp::GspState,
     pub hid: hid::HidState,
@@ -90,6 +86,12 @@ pub struct ServiceState {
     /// commands we logged as unimplemented, so the log stays readable and the
     /// diagnostics overlay can show what a title is actually asking for.
     pub unimplemented: BTreeMap<(String, u16), u32>,
+    // Keep new service state at the end: postcard serializes structs in field
+    // order, so older save-state sequences can omit these trailing fields.
+    #[serde(default)]
+    pub csnd: csnd::CsndState,
+    #[serde(default)]
+    pub plgldr: plgldr::PluginLoaderState,
 }
 
 /// entry point from svcSendSyncRequest.

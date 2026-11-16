@@ -87,11 +87,11 @@ pub fn load_for_title(system: &mut System, title: &Title, game_entry: u32) -> Op
     if ((title.program_id() >> 32) as u32 & 0xFFFF_FFED) != 0x0004_0000 {
         return None;
     }
-    let data_dir = system.config.data_dir.as_ref()?;
+    let data_dir = system.config.data_dir.as_ref()?.clone();
     // FS:USER maps ARCHIVE_SDMC to user_dir/sdmc. That directory is
     // the guest-visible SD root used by Luma and CTGP-7.
     let sdmc_root = system.services.fs.user_dir.join("sdmc");
-    let roots = plugin_roots(&sdmc_root, data_dir);
+    let roots = plugin_roots(&sdmc_root, &data_dir);
 
     if system.services.plgldr.use_user_load_parameters
         && (system.services.plgldr.low_title_id == 0
